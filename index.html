@@ -165,6 +165,42 @@ footer.note{margin:22px 4px 0;font-size:12px;color:#7a828a;line-height:1.55}
 .gbtn.primary{background:var(--acc);border-color:var(--acc)}
 .gmsg{color:#ffb088;font-size:12.5px;min-height:18px;margin:4px 0 6px;line-height:1.45}
 .glink{background:none;border:none;color:#9aa3ab;font-size:12.5px;text-decoration:underline;cursor:pointer;padding:6px}
+
+.pcard.active{border-color:var(--acc);box-shadow:0 0 0 2px rgba(255,90,31,.12)}
+.planhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}
+.planname{font-size:16px;font-weight:800}
+.plansub{font-size:12.5px;color:var(--ink2);margin-top:3px}
+.bitems{display:flex;flex-direction:column;gap:8px}
+.bitem{display:flex;gap:10px;align-items:center;background:var(--sand);border:1px solid var(--line);border-radius:11px;padding:8px}
+.bph{flex:0 0 54px;width:54px;height:40px;object-fit:cover;border-radius:7px;background:#fff}
+.bmeta{flex:1;min-width:0}
+.bname{font-size:13px;font-weight:800;line-height:1.25}
+.brow{display:flex;gap:8px;margin-top:5px;flex-wrap:wrap}
+.sm-in{width:52px;font-size:13px;font-weight:700;border:1px solid var(--line);border-radius:7px;padding:5px 6px;text-align:center}
+.sm-in.wide{width:74px}
+.bctl{display:flex;flex-direction:column;gap:4px}
+.ib{background:#fff;border:1px solid var(--line);border-radius:7px;width:30px;height:24px;font-size:12px;cursor:pointer;color:var(--ink2);line-height:1}
+.ib.del{color:var(--red);border-color:#e7b9b3}
+.pickov{position:fixed;inset:0;z-index:50;background:rgba(10,12,14,.6);display:none;align-items:flex-end;justify-content:center}
+.pickov.open{display:flex}
+.pickin{background:#fff;width:100%;max-width:760px;max-height:88vh;border-radius:18px 18px 0 0;padding:14px 14px 18px;overflow:auto}
+.pickhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:16px}
+.picklist{margin-top:10px;display:flex;flex-direction:column;gap:7px}
+.pickrow{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:7px;cursor:pointer}
+.pickrow:active{background:var(--sand)}
+.pickrow img{flex:0 0 56px;width:56px;height:42px;object-fit:cover;border-radius:7px;background:var(--sand)}
+.pkname{font-size:13.5px;font-weight:700;line-height:1.25}
+.pktags{font-size:11.5px;color:var(--ink2);margin-top:2px}
+.pkadd{margin-left:auto;font-size:20px;color:var(--acc);font-weight:800;padding:0 6px}
+
+.pkmodes{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.pkhint{font-size:12.5px;color:var(--ink2);margin:2px 0 10px;line-height:1.5}
+.pkrow2{display:flex;gap:8px}
+.pkrow2 .libsearch{flex:1;min-width:0}
+.pickin .libsearch{margin-bottom:8px}
+.pickin .libsel{width:100%;margin-bottom:8px}
+.pickin .iobtn{width:100%;margin-bottom:8px}
+.pickin input[type=file]{padding:9px;font-size:13px}
 </style></head><body>
 <div class="gate" id="gate"><div class="gatein">
   <div class="glogo">🏋</div>
@@ -293,7 +329,7 @@ function progressHTML(){
   const wk=(()=>{const now=new Date();const dd=(now.getDay()+6)%7;const mon=new Date(now);mon.setDate(now.getDate()-dd);const ms=mon.toISOString().slice(0,10);return s.history.filter(h=>h.date>=ms).length;})();
   const hist=total?'<div class="hist">'+s.history.slice(0,30).map(h=>{
     const its=(h.items||[]).filter(it=>it.weight||it.reps);
-    const head=`<span>${h.date}</span><span class="htag">День ${h.day}</span>`;
+    const head=`<span>${h.date}</span><span class="htag">${h.plan?esc(h.plan)+' · '+esc(h.day):'День '+h.day}</span>`;
     if(!its.length)return `<div class="hsum">${head}</div>`;
     const rows=its.map(it=>`<div class="hrow"><span>${it.name}</span><span>${it.weight?it.weight+' кг':'—'}${it.reps?' × '+it.reps:''}</span></div>`).join('');
     return `<details class="hitem"><summary class="hsum">${head}</summary><div class="histdet">${rows}</div></details>`;
@@ -590,5 +626,731 @@ render('a');
   var urlSet=window.SUPABASE_URL && !/ВСТАВ/.test(window.SUPABASE_URL||'');
   if(urlSet && n<40){setTimeout(function(){waitLib(n+1);},150);}
 })(0);
+
+
+/* ==================== ПЛАНИ ТРЕНУВАНЬ ==================== */
+const PHOTO_KEY='trener_photos';
+let photoCache={}; try{photoCache=JSON.parse(localStorage.getItem(PHOTO_KEY)||'{}')}catch(e){photoCache={}}
+function savePhotoCache(){try{localStorage.setItem(PHOTO_KEY,JSON.stringify(photoCache));return true}catch(e){return false}}
+function photoSrc(p){return p?(photoCache[p]||IMG_BASE+p):''}
+function uid(pfx){return (pfx||'i')+Math.random().toString(36).slice(2,9)}
+
+const _normalize=normalize;
+normalize=function(o){o=_normalize(o);o.plans=o.plans||[];o.activePlan=o.activePlan||'builtin';o.planChosen=!!o.planChosen;return o;};
+s=normalize(s);
+
+function activePlan(){if(!s.activePlan||s.activePlan==='builtin')return null;return (s.plans||[]).find(p=>p.id===s.activePlan)||null;}
+function ckey(p,it){return p.id+':'+it.uid;}
+function ensureLib(){if(LIB)return Promise.resolve(LIB);return fetch('./exercises.json').then(r=>r.json()).then(d=>{LIB=d;return d;});}
+
+/* ---------- підбір вправ ---------- */
+const SLOTS={
+ chest:{mus:['chest'],label:'Груди'},
+ vpull:{mus:['lats'],label:'Спина (вертикальна тяга)'},
+ hpull:{mus:['middle back'],label:'Спина (горизонтальна тяга)'},
+ legs:{mus:['quadriceps','hamstrings','glutes'],label:'Ноги'},
+ shoulders:{mus:['shoulders'],label:'Плечі'},
+ lowback:{mus:['lower back'],label:'Поперек'},
+ core:{mus:['abdominals'],label:'Прес / кор'},
+ biceps:{mus:['biceps'],label:'Біцепс'},
+ triceps:{mus:['triceps'],label:'Трицепс'}
+};
+function exScore(x){let n=0;if(x.level==='beginner')n+=3;if(x.mechanic==='compound')n+=2;if(x.equipment==='machine')n+=2;if(x.equipment==='body only')n+=1;if(/decline|behind|guillotine/i.test(x.name))n-=4;return n;}
+function banRe(limits){
+  const parts=[];
+  if(limits.includes('back'))parts.push('deadlift','good morning','bent over','clean','snatch','jerk','rack pull');
+  if(limits.includes('shoulder'))parts.push('behind neck','upright row','overhead','military','dip');
+  if(limits.includes('knee'))parts.push('squat','lunge','jump','step-up','leg extension','sprint');
+  if(limits.includes('heart'))parts.push('burpee','sprint','jump');
+  return parts.length?new RegExp(parts.join('|'),'i'):/^\b$/;
+}
+function equipFor(place,home){
+  if(place==='gym')return ['barbell','dumbbell','cable','machine','body only','e-z curl bar','kettlebells','bands','exercise ball','medicine ball','other'];
+  const e=['body only'];
+  if(home.includes('dumbbell'))e.push('dumbbell','kettlebells');
+  if(home.includes('bands'))e.push('bands');
+  if(home.includes('ball'))e.push('exercise ball','medicine ball');
+  return e;
+}
+function pickSlot(slot,ctx,used){
+  const def=SLOTS[slot];if(!def||!LIB)return null;
+  const base=LIB.filter(x=>x.img&&(x.pm||[]).some(m=>def.mus.includes(m))
+    && ctx.equip.includes(x.equipment)
+    && ctx.levels.includes(x.level)
+    && !ctx.ban.test(x.name)
+    && !['plyometrics','olympic weightlifting','strongman','stretching'].includes(x.category));
+  if(!base.length)return null;
+  base.sort((a,b)=>exScore(b)-exScore(a)||a.name.localeCompare(b.name));
+  const fresh=base.filter(x=>!used.has(x.id));
+  const pick=fresh[0]||base[0];
+  if(pick)used.add(pick.id);
+  return pick;
+}
+function mkItem(x,sets,reps){return {uid:uid('i'),libId:x.id,name:x.name,ins:x.ins||[],img:x.img||null,img2:x.img2||null,eq:x.equipment,pm:x.pm||[],sets:sets,reps:reps};}
+function altsFor(it){
+  if(!LIB)return[];
+  const m=(it.pm||[])[0];if(!m)return[];
+  const c=LIB.filter(x=>x.id!==it.libId&&x.img&&(x.pm||[]).includes(m)&&x.equipment!==it.eq&&x.level!=='expert'&&!['plyometrics','olympic weightlifting','strongman','stretching'].includes(x.category));
+  c.sort((a,b)=>exScore(b)-exScore(a)||a.name.localeCompare(b.name));
+  const seen=new Set(),out=[];
+  for(const x of c){if(seen.has(x.equipment))continue;seen.add(x.equipment);out.push(x);if(out.length===2)break;}
+  return out;
+}
+function templates(days){
+  if(days<=2)return [['chest','vpull','legs','hpull','lowback','core'],['chest','hpull','legs','vpull','lowback','core']];
+  if(days===3)return [['chest','vpull','triceps','core','lowback'],['legs','hpull','biceps','core','lowback'],['chest','shoulders','vpull','core','lowback']];
+  return [['chest','shoulders','triceps','core'],['legs','lowback','core'],['vpull','hpull','biceps','core'],['chest','shoulders','legs','core']];
+}
+function repScheme(goal){
+  if(goal==='strength')return{sets:3,reps:'8–12'};
+  if(goal==='loss')return{sets:3,reps:'12–15'};
+  if(goal==='health')return{sets:2,reps:'12–15'};
+  return{sets:3,reps:'10–12'};
+}
+function generatePlan(a){
+  const scheme=repScheme(a.goal);
+  const used=new Set();
+  const tpl=templates(a.days);
+  const plan={id:uid('p'),name:'Підібраний план',type:'generated',created:today(),warmNote:'',days:[]};
+  for(let i=0;i<a.days;i++){
+    const homeDay=(a.place==='home')||(a.place==='both'&&i===a.days-1);
+    const ctx={equip:equipFor(homeDay?'home':'gym',a.home),levels:a.exp==='novice'?['beginner']:['beginner','intermediate'],ban:banRe(a.limits)};
+    const slots=tpl[i%tpl.length].filter(sl=>!(sl==='legs'&&a.limits.includes('legs')));
+    const items=[];
+    slots.forEach(sl=>{const x=pickSlot(sl,ctx,used);if(x)items.push(mkItem(x,scheme.sets,scheme.reps));});
+    plan.days.push({name:'День '+(i+1),place:homeDay?'home':'gym',warm:true,cardio:!homeDay,items:items});
+  }
+  return plan;
+}
+
+/* ---------- вкладки ---------- */
+function tabBtn(k,l){return '<button class="tab" role="tab" data-tab="'+k+'">'+esc(l)+'</button>';}
+let tabsSig='';
+function buildTabs(){
+  const nav=document.getElementById('tabs');if(!nav)return;
+  const p=activePlan();let h='';
+  if(!p){h+=tabBtn('warm','Розминка')+tabBtn('a','День A')+tabBtn('b','День B')+tabBtn('cardio','Кардіо');}
+  else{
+    if(p.days.some(d=>d.warm))h+=tabBtn('warm','Розминка');
+    p.days.forEach((d,i)=>{h+=tabBtn('d'+i,d.name||('День '+(i+1)));});
+    if(p.days.some(d=>d.cardio))h+=tabBtn('cardio','Кардіо');
+  }
+  h+=tabBtn('progress','Прогрес')+tabBtn('library','Бібліотека')+tabBtn('plans','Плани');
+  nav.innerHTML=h;
+  [...nav.querySelectorAll('.tab')].forEach(t=>t.addEventListener('click',()=>render(t.dataset.tab)));
+}
+function ensureTabs(){const p=activePlan();const sig=p?(p.id+':'+p.days.map(d=>d.name).join('|')):'builtin';if(sig!==tabsSig){tabsSig=sig;buildTabs();}}
+function markTab(t){[...document.querySelectorAll('#tabs .tab')].forEach(x=>x.setAttribute('aria-selected',x.dataset.tab===t?'true':'false'));}
+function startTab(){return activePlan()?'d0':'a';}
+
+/* ---------- картка вправи власного плану ---------- */
+function planCardHTML(p,it,idx,tab){
+  const k=ckey(p,it);
+  const ins=(it.ins||[]).map(i=>'<li>'+esc(i)+'</li>').join('');
+  const two=(it.img&&it.img2)?'<div class="libphotos" style="margin-top:10px"><img src="'+photoSrc(it.img)+'" alt=""><img src="'+photoSrc(it.img2)+'" alt=""></div>':'';
+  const alts=altsFor(it);
+  const altHtml=alts.length?('<button class="altbtn js-alt">🔁 Аналоги, якщо зайнято ('+alts.length+')</button><div class="alts">'+alts.map(a=>
+    '<div class="altcard"><img class="altph" loading="lazy" src="'+photoSrc(a.img)+'" alt=""><div class="altmeta">'+
+    '<div class="altname">'+esc(a.name)+'</div><span class="altbadge">'+esc(eqUA(a.equipment))+' · '+esc(lvUA(a.level))+'</span>'+
+    '<ul class="altwatch">'+(a.ins||[]).slice(0,2).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>'+
+    '<a class="altvid" target="_blank" rel="noopener" href="'+ytSearch(a.name)+'">▶ Відео</a></div></div>').join('')+'</div>'):'';
+  return '<article class="card" data-key="'+k+'" data-day="'+tab+'"><div class="body">'+
+    '<div class="figrow"><div class="numbox">'+pad2(idx)+'</div>'+
+    '<div class="fig">'+(it.img?'<img class="ph" loading="lazy" src="'+photoSrc(it.img)+'" alt="">':'')+'</div>'+
+    '<div class="headcol"><div class="exname">'+esc(it.name)+'</div>'+
+    '<span class="badge">'+esc((it.sets||3)+' × '+(it.reps||'10'))+'</span></div></div>'+
+    (ins?'<div class="how"><b>Як робити (з бази, англ.):</b><ol class="custins">'+ins+'</ol></div>':'')+
+    two+
+    '<div class="acts"><a class="vbtn" target="_blank" rel="noopener" href="'+(it.video||ytSearch(it.name))+'">'+
+    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Відео</a>'+
+    '<label class="wlab">кг <input type="number" inputmode="decimal" class="wt-in" min="0" step="1" placeholder="вага"></label>'+
+    '<label class="done"><input type="checkbox" class="ck">Зроблено</label></div>'+
+    altHtml+'</div></article>';
+}
+function renderPlanDay(p,idx){
+  const tab='d'+idx;
+  s.checks[tab]=s.checks[tab]||{};
+  const day=p.days[idx];
+  if(!day){panel.innerHTML='<p class="empty">День не знайдено.</p>';return;}
+  panel.innerHTML='<p class="lead">Завантаження…</p>';
+  ensureLib().then(()=>{
+    const cards=day.items.map((it,i)=>planCardHTML(p,it,i+1,tab)).join('');
+    panel.innerHTML='<p class="lead">'+esc(p.name)+' · '+esc(day.name)+' · '+(day.place==='home'?'вдома':'зал')+'</p>'+
+      (day.warm&&p.warmNote?'<div class="pcard"><div class="ph2">Розминка</div><p class="empty" style="margin:0">'+esc(p.warmNote)+'</p></div>':'')+
+      (cards||'<p class="empty">У цьому дні ще немає вправ — додай їх у редакторі плану.</p>')+
+      (day.items.length?'<button class="finish" data-finishday="'+tab+'">✓ Завершити '+esc(day.name)+'</button>':'')+
+      '<button class="libmore" id="editplan">✎ Редагувати план</button>';
+    panel.querySelectorAll('.card').forEach(wireCard);
+    panel.querySelectorAll('.js-alt').forEach(b=>b.addEventListener('click',()=>{const x=b.nextElementSibling;const op=x.classList.toggle('open');b.classList.toggle('open',op);}));
+    const fb=panel.querySelector('.finish');
+    if(fb){fb.addEventListener('click',()=>finishDay(tab));refreshFinish(tab);}
+    const ed=document.getElementById('editplan');if(ed)ed.onclick=()=>{builderId=p.id;render('builder');};
+    window.scrollTo({top:0});
+  }).catch(()=>{panel.innerHTML='<p class="empty">Не вдалося завантажити базу вправ. Перевір інтернет.</p>';});
+}
+
+/* ---------- перевизначення render / finishDay / refreshFinish / nameFor ---------- */
+const _render=render, _finishDay=finishDay, _refreshFinish=refreshFinish, _nameFor=nameFor;
+render=function(tab){
+  ensureTabs();
+  const p=activePlan();
+  if(tab==='plans'){cur=tab;markTab(tab);renderPlansTab();return;}
+  if(tab==='survey'){cur=tab;markTab('plans');renderSurvey();return;}
+  if(tab==='builder'){cur=tab;markTab('plans');renderBuilder();return;}
+  if(p){
+    if(tab==='a'||tab==='b')tab='d0';
+    if(/^d(\d+)$/.test(tab)){const i=+tab.slice(1);if(!p.days[i])tab='d0';cur=tab;markTab(tab);renderPlanDay(p,+tab.slice(1));return;}
+  }else if(/^d\d+$/.test(tab)){tab='a';}
+  _render(tab);markTab(tab);
+};
+refreshFinish=function(d){
+  const p=activePlan();
+  if(!p||!/^d\d+$/.test(d))return _refreshFinish(d);
+  const btn=panel.querySelector('.finish[data-finishday="'+d+'"]');if(!btn)return;
+  const day=p.days[+d.slice(1)];if(!day)return;
+  const keys=day.items.map(it=>ckey(p,it));
+  const done=keys.filter(k=>s.checks[d]&&s.checks[d][k]).length;
+  btn.classList.toggle('ready',done===keys.length&&keys.length>0);
+  btn.textContent=done>0?('✓ Завершити '+day.name+' ('+done+'/'+keys.length+')'):('✓ Завершити '+day.name);
+};
+finishDay=function(d){
+  const p=activePlan();
+  if(!p||!/^d\d+$/.test(d))return _finishDay(d);
+  const day=p.days[+d.slice(1)];if(!day)return;
+  const items=day.items.map(it=>{const k=ckey(p,it);return{key:k,name:it.name,weight:s.weights[k]||'',reps:s.reps[k]||'',done:!!(s.checks[d]&&s.checks[d][k])};}).filter(x=>x.done||x.weight||x.reps);
+  s.history.unshift({day:day.name,date:today(),plan:p.name,items:items});
+  s.checks[d]={};touch();render(d);toast('Тренування записано 💪');
+};
+nameFor=function(k){
+  const n=_nameFor(k);
+  if(n!==k)return n;
+  for(const p of (s.plans||[])){for(const d of p.days){for(const it of d.items){if(ckey(p,it)===k)return it.name;}}}
+  return k;
+};
+
+/* ---------- вкладка «Плани» ---------- */
+function planCardBox(title,sub,active,btns){
+  return '<div class="pcard'+(active?' active':'')+'"><div class="planhead"><div><div class="planname">'+esc(title)+
+    (active?'<span class="synced-pill" style="margin-left:8px">активний</span>':'')+'</div>'+
+    '<div class="plansub">'+esc(sub)+'</div></div></div><div class="iorow">'+btns+'</div></div>';
+}
+function renderPlansTab(){
+  const act=s.activePlan;
+  let h='<p class="lead">Обери план тренувань. Можеш мати кілька і перемикатися.</p>';
+  h+=planCardBox('Рекомендований (від тренера)','2 дні · верх тіла, спина, кор · з аналогами',act==='builtin',
+      act==='builtin'?'<button class="iobtn" disabled>Уже активний</button>':'<button class="iobtn primary" data-act="builtin">Зробити активним</button>');
+  (s.plans||[]).forEach(p=>{
+    const n=p.days.reduce((a,d)=>a+d.items.length,0);
+    h+=planCardBox(p.name,p.days.length+' дн. · '+n+' вправ · '+(p.type==='generated'?'підібраний':'власний'),act===p.id,
+      (act===p.id?'':'<button class="iobtn primary" data-act="'+p.id+'">Активувати</button>')+
+      '<button class="iobtn" data-edit="'+p.id+'">✎ Редагувати</button>'+
+      '<button class="iobtn" data-off="'+p.id+'">⬇ Фото офлайн</button>'+
+      '<button class="iobtn danger" data-del="'+p.id+'">🗑</button>');
+  });
+  h+='<div class="pcard"><div class="ph2">Створити новий</div><div class="iorow">'+
+     '<button class="iobtn primary" id="go-survey">🎯 Підібрати опитуванням</button>'+
+     '<button class="iobtn" id="go-new">➕ Скласти самому</button></div></div>';
+  panel.innerHTML=h;
+  panel.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{s.activePlan=b.dataset.act;s.planChosen=true;touch();tabsSig='';render(startTab());toast('План активовано');});
+  panel.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{builderId=b.dataset.edit;render('builder');});
+  panel.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+    if(!confirm('Видалити цей план? Історія тренувань залишиться.'))return;
+    s.plans=s.plans.filter(x=>x.id!==b.dataset.del);
+    if(s.activePlan===b.dataset.del)s.activePlan='builtin';
+    touch();tabsSig='';render('plans');toast('План видалено');});
+  panel.querySelectorAll('[data-off]').forEach(b=>b.onclick=async()=>{
+    const p=(s.plans||[]).find(x=>x.id===b.dataset.off);if(!p)return;
+    b.disabled=true;b.textContent='Завантажую…';
+    await cachePhotos(p,(d,t)=>{b.textContent='Фото '+d+'/'+t;});
+    b.textContent='✓ Офлайн';toast('Фото збережено для офлайн');});
+  const gs=document.getElementById('go-survey');if(gs)gs.onclick=()=>render('survey');
+  const gn=document.getElementById('go-new');if(gn)gn.onclick=()=>{
+    const p={id:uid('p'),name:'Мій план',type:'custom',created:today(),warmNote:'',
+      days:[{name:'День 1',place:'gym',warm:true,cardio:true,items:[]}]};
+    s.plans.push(p);touch();builderId=p.id;render('builder');};
+  window.scrollTo({top:0});
+}
+async function cachePhotos(p,cb){
+  const paths=[];p.days.forEach(d=>d.items.forEach(it=>{if(it.img)paths.push(it.img);if(it.img2)paths.push(it.img2);}));
+  let done=0;
+  for(const path of paths){
+    if(!photoCache[path]){
+      try{const r=await fetch(IMG_BASE+path);const bl=await r.blob();
+        photoCache[path]=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(bl);});
+      }catch(e){}
+    }
+    done++;if(cb)cb(done,paths.length);
+  }
+  if(!savePhotoCache())toast('Замало місця для всіх фото');
+}
+
+/* ---------- опитування ---------- */
+const SURVEY=[
+ {k:'goal',t:'Головна мета',type:'one',opts:[['loss','Схуднути'],['strength','М’язи і сила'],['health','Здоров’я, витривалість'],['all','Усе потроху']]},
+ {k:'days',t:'Днів на тиждень',type:'one',opts:[['2','2'],['3','3'],['4','4']]},
+ {k:'place',t:'Де тренуєшся',type:'one',opts:[['gym','У залі'],['home','Вдома'],['both','Зал + дім']]},
+ {k:'home',t:'Що є вдома (якщо тренуєшся вдома)',type:'many',opts:[['dumbbell','Гантелі / гирі'],['bands','Резинки'],['ball','М’яч / фітбол']]},
+ {k:'limits',t:'Обмеження здоров’я',type:'many',opts:[['back','Спина'],['knee','Коліна'],['shoulder','Плечі'],['heart','Серце'],['legs','Ноги треную окремо (біг)']]},
+ {k:'exp',t:'Досвід',type:'one',opts:[['novice','Новачок'],['some','Трохи є']]}
+];
+let survey={goal:'all',days:'2',place:'gym',home:[],limits:[],exp:'novice'};
+function renderSurvey(){
+  let h='<p class="lead">Опитування — підберу вправи, підходи й аналоги під тебе.</p>';
+  SURVEY.forEach(q=>{
+    h+='<div class="pcard"><div class="ph2">'+esc(q.t)+'</div><div class="lvlchips">';
+    q.opts.forEach(([v,l])=>{
+      const on=q.type==='one'?survey[q.k]===v:(survey[q.k]||[]).includes(v);
+      h+='<span class="lvlchip'+(on?' on':'')+'" data-q="'+q.k+'" data-v="'+v+'" data-t="'+q.type+'">'+esc(l)+'</span>';
+    });
+    h+='</div></div>';
+  });
+  h+='<div class="pcard"><p class="empty" style="margin:0 0 10px">Підходи й повторення можна змінити для кожної вправи після створення.</p>'+
+     '<div class="iorow"><button class="iobtn primary" id="sv-go">Скласти план</button>'+
+     '<button class="iobtn" id="sv-back">Назад</button></div></div>';
+  panel.innerHTML=h;
+  panel.querySelectorAll('.lvlchip[data-q]').forEach(c=>c.onclick=()=>{
+    const k=c.dataset.q,v=c.dataset.v;
+    if(c.dataset.t==='one')survey[k]=v;
+    else{survey[k]=survey[k]||[];const i=survey[k].indexOf(v);i>=0?survey[k].splice(i,1):survey[k].push(v);}
+    renderSurvey();
+  });
+  document.getElementById('sv-back').onclick=()=>render('plans');
+  document.getElementById('sv-go').onclick=()=>{
+    panel.innerHTML='<p class="lead">Підбираю вправи…</p>';
+    ensureLib().then(()=>{
+      const p=generatePlan({goal:survey.goal,days:+survey.days,place:survey.place,home:survey.home||[],limits:survey.limits||[],exp:survey.exp});
+      const cnt=p.days.reduce((a,d)=>a+d.items.length,0);
+      if(!cnt){panel.innerHTML='<p class="empty">Не вдалося підібрати вправи під ці умови. Спробуй прибрати частину обмежень.</p><button class="libmore" onclick="render(\'survey\')">Назад</button>';return;}
+      s.plans.push(p);s.activePlan=p.id;s.planChosen=true;touch();tabsSig='';
+      builderId=p.id;render('builder');toast('План складено — перевір і збережи');
+    }).catch(()=>{panel.innerHTML='<p class="empty">Не вдалося завантажити базу вправ.</p>';});
+  };
+  window.scrollTo({top:0});
+}
+
+/* ---------- конструктор ---------- */
+let builderId=null;
+function renderBuilder(){
+  const p=(s.plans||[]).find(x=>x.id===builderId);
+  if(!p){render('plans');return;}
+  let h='<p class="lead">Редактор плану. Зміни зберігаються одразу.</p>';
+  h+='<div class="pcard"><div class="ph2">Назва плану</div><input class="authin" id="pl-name" value="'+esc(p.name)+'">'+
+     '<div class="ph2" style="margin-top:12px">Розминка (спільна для плану)</div>'+
+     '<input class="authin" id="pl-warm" placeholder="напр. 5–10 хв велотренажер + суглобова" value="'+esc(p.warmNote||'')+'"></div>';
+  p.days.forEach((d,i)=>{
+    h+='<div class="pcard"><div class="ph2">День '+(i+1)+'</div>'+
+       '<input class="authin" data-dn="'+i+'" value="'+esc(d.name)+'">'+
+       '<div class="lvlchips" style="margin:6px 0 10px">'+
+       '<span class="lvlchip'+(d.place==='gym'?' on':'')+'" data-place="'+i+'" data-v="gym">Зал</span>'+
+       '<span class="lvlchip'+(d.place==='home'?' on':'')+'" data-place="'+i+'" data-v="home">Вдома</span>'+
+       '<span class="lvlchip'+(d.warm?' on':'')+'" data-tog="warm" data-i="'+i+'">Розминка</span>'+
+       '<span class="lvlchip'+(d.cardio?' on':'')+'" data-tog="cardio" data-i="'+i+'">Кардіо</span></div>';
+    h+=d.items.length?'<div class="bitems">'+d.items.map((it,j)=>
+       '<div class="bitem"><img class="bph" loading="lazy" src="'+(it.photoData||photoSrc(it.img))+'" alt="">'+
+       '<div class="bmeta"><div class="bname">'+esc(it.name)+'</div>'+
+       '<div class="brow"><label class="wlab">під. <input type="number" class="sm-in" min="1" max="10" data-sets="'+i+'_'+j+'" value="'+esc(it.sets||3)+'"></label>'+
+       '<label class="wlab">повт. <input type="text" class="sm-in wide" data-reps="'+i+'_'+j+'" value="'+esc(it.reps||'10')+'"></label></div></div>'+
+       '<div class="bctl"><button class="ib" data-up="'+i+'_'+j+'">▲</button><button class="ib" data-down="'+i+'_'+j+'">▼</button>'+
+       '<button class="ib del" data-rm="'+i+'_'+j+'">✕</button></div></div>').join('')+'</div>'
+       :'<p class="empty">Ще немає вправ.</p>';
+    h+='<div class="iorow" style="margin-top:10px"><button class="iobtn primary" data-add="'+i+'">➕ Додати вправу</button>'+
+       (p.days.length>1?'<button class="iobtn danger" data-rmday="'+i+'">🗑 День</button>':'')+'</div></div>';
+  });
+  h+='<div class="iorow"><button class="iobtn" id="pl-addday">➕ Додати день</button>'+
+     '<button class="iobtn primary" id="pl-done">✓ Готово</button></div>';
+  panel.innerHTML=h;
+  const save=()=>{touch();};
+  document.getElementById('pl-name').oninput=e=>{p.name=e.target.value;tabsSig='';save();};
+  document.getElementById('pl-warm').oninput=e=>{p.warmNote=e.target.value;save();};
+  panel.querySelectorAll('[data-dn]').forEach(el=>el.oninput=()=>{p.days[+el.dataset.dn].name=el.value;tabsSig='';save();});
+  panel.querySelectorAll('[data-place]').forEach(el=>el.onclick=()=>{p.days[+el.dataset.place].place=el.dataset.v;save();renderBuilder();});
+  panel.querySelectorAll('[data-tog]').forEach(el=>el.onclick=()=>{const d=p.days[+el.dataset.i];d[el.dataset.tog]=!d[el.dataset.tog];tabsSig='';save();renderBuilder();});
+  panel.querySelectorAll('[data-sets]').forEach(el=>el.oninput=()=>{const[i,j]=el.dataset.sets.split('_').map(Number);p.days[i].items[j].sets=el.value;save();});
+  panel.querySelectorAll('[data-reps]').forEach(el=>el.oninput=()=>{const[i,j]=el.dataset.reps.split('_').map(Number);p.days[i].items[j].reps=el.value;save();});
+  panel.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{const[i,j]=el.dataset.rm.split('_').map(Number);p.days[i].items.splice(j,1);save();renderBuilder();});
+  panel.querySelectorAll('[data-up]').forEach(el=>el.onclick=()=>{const[i,j]=el.dataset.up.split('_').map(Number);if(j>0){const a=p.days[i].items;[a[j-1],a[j]]=[a[j],a[j-1]];save();renderBuilder();}});
+  panel.querySelectorAll('[data-down]').forEach(el=>el.onclick=()=>{const[i,j]=el.dataset.down.split('_').map(Number);const a=p.days[i].items;if(j<a.length-1){[a[j+1],a[j]]=[a[j],a[j+1]];save();renderBuilder();}});
+  panel.querySelectorAll('[data-add]').forEach(el=>el.onclick=()=>openPicker(p,+el.dataset.add));
+  panel.querySelectorAll('[data-rmday]').forEach(el=>el.onclick=()=>{if(!confirm('Видалити цей день?'))return;p.days.splice(+el.dataset.rmday,1);tabsSig='';save();renderBuilder();});
+  document.getElementById('pl-addday').onclick=()=>{p.days.push({name:'День '+(p.days.length+1),place:'gym',warm:true,cardio:true,items:[]});tabsSig='';save();renderBuilder();};
+  document.getElementById('pl-done').onclick=()=>{s.activePlan=p.id;s.planChosen=true;touch();tabsSig='';render(startTab());toast('План збережено');};
+  window.scrollTo({top:0});
+}
+
+/* ---------- вибір вправи ---------- */
+let pickCtx=null,pickQ='',pickEq='';
+function openPicker(p,dayIdx){pickCtx={p:p,d:dayIdx};pickQ='';pickEq='';toast('Відкриваю бібліотеку…');ensureLib().then(renderPicker).catch(()=>toast('Не вдалося завантажити базу вправ — перевір інтернет'));}
+function renderPicker(){
+  let ov=document.getElementById('pickov');
+  if(!ov){ov=document.createElement('div');ov.id='pickov';ov.className='pickov';document.body.appendChild(ov);}
+  const eqKeys=Object.keys(EQ);
+  const list=(LIB||[]).filter(x=>{
+    if(pickEq&&x.equipment!==pickEq)return false;
+    if(pickQ){const hay=(x.name+' '+(x.pm||[]).map(muUA).join(' ')).toLowerCase();if(!hay.includes(pickQ.toLowerCase()))return false;}
+    return true;}).slice(0,80);
+  ov.innerHTML='<div class="pickin"><div class="pickhead"><b>Додати вправу</b><button class="ib" id="pk-close">✕</button></div>'+
+    '<input class="libsearch" id="pk-q" placeholder="Пошук…" value="'+esc(pickQ)+'">'+
+    '<select class="libsel" id="pk-eq"><option value="">Усе обладнання</option>'+
+    eqKeys.map(k=>'<option value="'+k+'"'+(pickEq===k?' selected':'')+'>'+esc(eqUA(k))+'</option>').join('')+'</select>'+
+    '<div class="picklist">'+(list.length?list.map(x=>
+      '<div class="pickrow" data-id="'+x.id+'"><img loading="lazy" src="'+photoSrc(x.img)+'" alt="">'+
+      '<div><div class="pkname">'+esc(x.name)+'</div><div class="pktags">'+esc((x.pm||[]).slice(0,2).map(muUA).join(', '))+' · '+esc(eqUA(x.equipment))+'</div></div>'+
+      '<span class="pkadd">＋</span></div>').join(''):'<p class="empty">Нічого не знайдено.</p>')+'</div></div>';
+  ov.classList.add('open');
+  document.getElementById('pk-close').onclick=()=>ov.classList.remove('open');
+  const q=document.getElementById('pk-q');
+  q.oninput=()=>{pickQ=q.value;renderPicker();setTimeout(()=>{const n=document.getElementById('pk-q');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}},0);};
+  document.getElementById('pk-eq').onchange=e=>{pickEq=e.target.value;renderPicker();};
+  ov.querySelectorAll('.pickrow').forEach(r=>r.onclick=()=>{
+    const x=(LIB||[]).find(y=>y.id===r.dataset.id);if(!x||!pickCtx)return;
+    pickCtx.p.days[pickCtx.d].items.push(mkItem(x,3,'10–12'));
+    touch();toast('Додано: '+x.name);ov.classList.remove('open');renderBuilder();});
+}
+
+/* ---------- старт ---------- */
+buildTabs();
+if(!s.planChosen&&!(s.plans||[]).length){render('plans');}else{render(startTab());}
+
+/* після входу — показати вибір плану, якщо ще не обрано */
+const _hideGate=hideGate;
+hideGate=function(){_hideGate();if(!s.planChosen){setTimeout(()=>{try{render('plans')}catch(e){}},60);}};
+
+
+
+/* ==================== ДОДАВАННЯ ВПРАВ: ОПИС / ВІДЕО / ФОТО / СВОЯ ==================== */
+
+/* --- українсько-англійський словник для пошуку описом --- */
+const UA2EN={
+ 'жим':['press'],'жими':['press'],'вижим':['press'],
+ 'тяга':['row','pulldown','pull'],'тяги':['row','pulldown'],'притягув':['row'],
+ 'присід':['squat'],'присідан':['squat'],'сід':['squat'],
+ 'згинан':['curl'],'згин':['curl'],'розгинан':['extension'],'розгин':['extension'],
+ 'підйом':['raise'],'підйоми':['raise'],'піднімання':['raise'],
+ 'розведен':['fly','flye','raise'],'зведен':['fly','crossover'],
+ 'скручуван':['crunch','sit-up'],'скручув':['crunch'],'прес':['crunch','sit-up','abdominal'],
+ 'планка':['plank'],'планк':['plank'],
+ 'випад':['lunge'],'випади':['lunge'],
+ 'станова':['deadlift'],'станов':['deadlift'],
+ 'підтягуван':['pull-up','pullup','chin-up'],'підтяг':['pull-up','chin-up'],
+ 'віджиман':['push-up','pushup'],'віджим':['push-up','dip'],'брус':['dip'],
+ 'гіперекстенз':['hyperextension','back extension'],'нахил':['bent','incline'],
+ 'махи':['swing','raise'],'мах':['swing'],
+ 'шраг':['shrug'],'знизуван':['shrug'],
+ 'пуловер':['pullover'],'кросовер':['crossover'],'місток':['bridge'],
+ 'ходьба':['walk'],'біг':['run','sprint'],'велосипед':['bike','bicycle'],
+ 'розтяж':['stretch'],'розтягув':['stretch'],
+ /* обладнання */
+ 'гантел':['dumbbell'],'гантель':['dumbbell'],'гантелі':['dumbbell'],
+ 'штанг':['barbell'],'гриф':['barbell','bar'],
+ 'блок':['cable','pulldown'],'блоч':['cable'],'трос':['cable'],'кабел':['cable'],
+ 'тренажер':['machine','leverage','lever'],'машин':['machine','smith'],'сміт':['smith'],
+ 'гир':['kettlebell'],'гиря':['kettlebell'],
+ 'резинк':['band'],'гумк':['band'],'еспандер':['band'],
+ 'мяч':['ball'],'м\u2019яч':['ball'],'мʼяч':['ball'],'фітбол':['ball'],'медбол':['medicine ball'],
+ 'турнік':['pull-up','chin-up'],'перекладин':['pull-up'],
+ 'лав':['bench'],'лавк':['bench'],'лава':['bench'],
+ 'власна вага':['body only'],'без обладнання':['body only'],'вдома':['body only'],
+ /* положення */
+ 'сидяч':['seated','sitting'],'сидячи':['seated'],
+ 'лежач':['lying','bench'],'лежачи':['lying'],
+ 'стоячи':['standing'],'стояч':['standing'],
+ 'нахилен':['incline'],'похил':['incline'],'нахиленій':['incline'],
+ 'вертикальн':['pulldown','overhead'],'горизонтальн':['row','seated'],
+ 'широк':['wide'],'вузьк':['close','narrow'],'зворотн':['reverse'],'одн':['one-arm','single'],
+ 'французьк':['skullcrusher','french','lying triceps'],'молот':['hammer'],
+ /* мʼязи */
+ 'груди':['chest'],'грудн':['chest'],'грудей':['chest'],
+ 'спин':['back','row','pulldown'],'широчайш':['lat'],'найширш':['lat'],
+ 'плеч':['shoulder','deltoid'],'дельт':['shoulder'],
+ 'біцепс':['biceps','curl'],'трицепс':['triceps'],
+ 'ноги':['leg','squat'],'ніг':['leg'],'квадрицепс':['quadriceps','leg'],
+ 'стегн':['thigh','hamstring','leg'],'сідниц':['glute','bridge'],
+ 'ікр':['calf'],'литк':['calf'],'поперек':['back extension','hyperextension','lower back'],
+ 'кор':['plank','core'],'живіт':['crunch','abdominal'],'шия':['neck'],'передпліч':['wrist','forearm']
+};
+const UA2MUS={'груди':'chest','грудн':'chest','спин':'lats','широчайш':'lats','найширш':'lats',
+ 'плеч':'shoulders','дельт':'shoulders','біцепс':'biceps','трицепс':'triceps','прес':'abdominals',
+ 'живіт':'abdominals','кор':'abdominals','ноги':'quadriceps','ніг':'quadriceps','квадрицепс':'quadriceps',
+ 'стегн':'hamstrings','сідниц':'glutes','ікр':'calves','литк':'calves','поперек':'lower back',
+ 'трапец':'traps','передпліч':'forearms','шия':'neck'};
+const UA2EQ={'гантел':'dumbbell','штанг':'barbell','гриф':'barbell','блок':'cable','трос':'cable',
+ 'кабел':'cable','тренажер':'machine','машин':'machine','гир':'kettlebells','резинк':'bands',
+ 'гумк':'bands','еспандер':'bands','фітбол':'exercise ball','медбол':'medicine ball',
+ 'власна вага':'body only','без обладнання':'body only'};
+
+function smartFind(text,limit){
+  if(!LIB||!text)return[];
+  const q=text.toLowerCase().replace(/[^a-zа-яїієґ'’\s-]/gi,' ');
+  const words=q.split(/\s+/).filter(w=>w.length>2);
+  const en=new Set(),mus=new Set(),eqs=new Set();
+  words.forEach(w=>{
+    for(const k in UA2EN){if(w.startsWith(k)||k.startsWith(w)&&w.length>=4)UA2EN[k].forEach(t=>en.add(t));}
+    for(const k in UA2MUS){if(w.startsWith(k))mus.add(UA2MUS[k]);}
+    for(const k in UA2EQ){if(w.startsWith(k))eqs.add(UA2EQ[k]);}
+    if(/^[a-z-]+$/.test(w))en.add(w);
+  });
+  if(!en.size&&!mus.size&&!eqs.size)return[];
+  const res=[];
+  for(const x of LIB){
+    if(!x.img)continue;
+    const nm=x.name.toLowerCase();
+    let sc=0;
+    en.forEach(t=>{if(nm.includes(t))sc+=4;});
+    mus.forEach(m=>{if((x.pm||[]).includes(m))sc+=3;else if((x.sm||[]).includes(m))sc+=1;});
+    eqs.forEach(e=>{if(x.equipment===e)sc+=3;});
+    if(sc>0){
+      if(x.level==='beginner')sc+=1;
+      if(x.mechanic==='compound')sc+=0.5;
+      if(['plyometrics','olympic weightlifting','strongman'].includes(x.category))sc-=2;
+      if(/decline|behind|guillotine|split|deficit/i.test(nm))sc-=3;
+      sc+=Math.max(0,5-nm.split(/[\s-]+/).length)*0.5;
+      res.push([sc,x]);
+    }
+  }
+  res.sort((a,b)=>b[0]-a[0]||a[1].name.localeCompare(b[1].name));
+  return res.slice(0,limit||25).map(r=>r[1]);
+}
+
+/* --- фото з пристрою → стиснутий base64 --- */
+function fileToDataURL(file,maxW){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{const img=new Image();
+      img.onload=()=>{try{
+        const sc=Math.min(1,(maxW||560)/img.width);
+        const c=document.createElement('canvas');
+        c.width=Math.max(1,Math.round(img.width*sc));c.height=Math.max(1,Math.round(img.height*sc));
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL('image/jpeg',0.72));
+      }catch(e){rej(e)}};
+      img.onerror=rej;img.src=fr.result;};
+    fr.onerror=rej;fr.readAsDataURL(file);
+  });
+}
+function mkCustomItem(o){
+  return {uid:uid('i'),libId:null,own:true,name:o.name,ins:o.desc?[o.desc]:[],
+    photoData:o.photo||null,img:null,img2:null,eq:o.eq||'other',pm:o.pm?[o.pm]:[],
+    sets:o.sets||3,reps:o.reps||'10–12',video:o.video||''};
+}
+
+/* --- назва відео з посилання --- */
+function ytId(u){const m=String(u).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{6,})/);return m?m[1]:null;}
+async function videoTitle(url){
+  const tries=['https://noembed.com/embed?url='+encodeURIComponent(url),
+               'https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url)];
+  for(const t of tries){
+    try{const r=await fetch(t);if(!r.ok)continue;const j=await r.json();if(j&&j.title)return j.title;}catch(e){}
+  }
+  return null;
+}
+
+/* --- ШІ-розпізнавання через Supabase Edge Function --- */
+async function aiRecognize(dataUrl){
+  const base=(window.SUPABASE_URL||'').replace(/\/+$/,'');
+  if(!base||/ВСТАВ/.test(base))throw new Error('NO_CONFIG');
+  let token=window.SUPABASE_ANON_KEY||'';
+  try{if(sb){const{data}=await sb.auth.getSession();if(data&&data.session&&data.session.access_token)token=data.session.access_token;else throw new Error('NOT_LOGGED');}}catch(e){if(String(e.message)==='NOT_LOGGED')throw e;}
+  const r=await fetch(base+'/functions/v1/recognize',{method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':window.SUPABASE_ANON_KEY||''},
+    body:JSON.stringify({image:String(dataUrl).split(',')[1],media_type:'image/jpeg'})});
+  if(r.status===404)throw new Error('NOT_DEPLOYED');
+  if(!r.ok)throw new Error('HTTP_'+r.status);
+  return await r.json();
+}
+
+/* --- перебудований вибір вправи (режими) --- */
+let pickMode='lib',pickBusy=false,pickResults=null,pickMsg='',pickVideoUrl='';
+const _openPicker=openPicker;
+openPicker=function(p,dayIdx){pickCtx={p:p,d:dayIdx};pickQ='';pickEq='';pickMode='lib';pickResults=null;pickMsg='';pickVideoUrl='';
+  toast('Відкриваю бібліотеку…');ensureLib().then(renderPicker).catch(()=>toast('Не вдалося завантажити базу вправ'));};
+
+function rowHTML(x){
+  return '<div class="pickrow" data-id="'+x.id+'"><img loading="lazy" src="'+photoSrc(x.img)+'" alt="">'+
+    '<div><div class="pkname">'+esc(x.name)+'</div><div class="pktags">'+
+    esc((x.pm||[]).slice(0,2).map(muUA).join(', '))+' · '+esc(eqUA(x.equipment))+'</div></div>'+
+    '<span class="pkadd">＋</span></div>';
+}
+function modeBar(){
+  const m=[['lib','🔎 Пошук'],['desc','💬 Опис'],['video','▶ Відео'],['ai','📷 Фото'],['own','✎ Своя']];
+  return '<div class="pkmodes">'+m.map(([k,l])=>'<span class="lvlchip'+(pickMode===k?' on':'')+'" data-mode="'+k+'">'+l+'</span>').join('')+'</div>';
+}
+renderPicker=function(){
+  let ov=document.getElementById('pickov');
+  if(!ov){ov=document.createElement('div');ov.id='pickov';ov.className='pickov';document.body.appendChild(ov);}
+  let body='';
+  if(pickMode==='lib'){
+    const eqKeys=Object.keys(EQ);
+    const list=(LIB||[]).filter(x=>{
+      if(pickEq&&x.equipment!==pickEq)return false;
+      if(pickQ){const hay=(x.name+' '+(x.pm||[]).map(muUA).join(' ')).toLowerCase();if(!hay.includes(pickQ.toLowerCase()))return false;}
+      return true;}).slice(0,80);
+    body='<input class="libsearch" id="pk-q" placeholder="Пошук за назвою…" value="'+esc(pickQ)+'">'+
+      '<select class="libsel" id="pk-eq"><option value="">Усе обладнання</option>'+
+      eqKeys.map(k=>'<option value="'+k+'"'+(pickEq===k?' selected':'')+'>'+esc(eqUA(k))+'</option>').join('')+'</select>'+
+      '<div class="picklist">'+(list.length?list.map(rowHTML).join(''):'<p class="empty">Нічого не знайдено.</p>')+'</div>';
+  }
+  else if(pickMode==='desc'){
+    body='<p class="pkhint">Опиши вправу своїми словами українською — напр. «жим гантелей лежачи» або «тяга блоку до грудей сидячи».</p>'+
+      '<input class="libsearch" id="pk-desc" placeholder="опис вправи…" value="'+esc(pickQ)+'">'+
+      '<button class="iobtn primary" id="pk-find">Знайти</button>'+
+      (pickMsg?'<p class="pkhint">'+esc(pickMsg)+'</p>':'')+
+      '<div class="picklist">'+(pickResults?(pickResults.length?pickResults.map(rowHTML).join(''):'<p class="empty">Нічого не підібралось — спробуй інші слова.</p>'):'')+'</div>';
+  }
+  else if(pickMode==='video'){
+    body='<p class="pkhint">Встав посилання на YouTube — спробую взяти назву відео. З Facebook/Instagram назву читати не можна: встав її текстом, а посилання збережеться до вправи.</p>'+(pickVideoUrl?'<p class="pkhint">🔗 Збережене посилання: '+esc(pickVideoUrl.slice(0,48))+'…</p>':'')+
+      '<input class="libsearch" id="pk-vid" placeholder="посилання або назва відео" value="'+esc(pickQ)+'">'+
+      '<button class="iobtn primary" id="pk-vgo">'+(pickBusy?'Шукаю…':'Знайти')+'</button>'+
+      (pickMsg?'<p class="pkhint">'+esc(pickMsg)+'</p>':'')+
+      '<div class="picklist">'+(pickResults?(pickResults.length?pickResults.map(rowHTML).join(''):'<p class="empty">За цією назвою нічого не знайшлось.</p>'):'')+'</div>';
+  }
+  else if(pickMode==='ai'){
+    body='<p class="pkhint">Сфотографуй тренажер або вправу — ШІ спробує розпізнати й підібрати відповідник у базі.</p>'+
+      '<input type="file" accept="image/*" id="pk-file" class="libsearch">'+
+      '<button class="iobtn primary" id="pk-aigo">'+(pickBusy?'Розпізнаю…':'Розпізнати')+'</button>'+
+      (pickMsg?'<p class="pkhint">'+esc(pickMsg)+'</p>':'')+
+      '<div class="picklist">'+(pickResults?(pickResults.length?pickResults.map(rowHTML).join(''):'')+'':'')+'</div>';
+  }
+  else{
+    body='<p class="pkhint">Додай свою вправу — з власним фото тренажера у твоєму залі.</p>'+
+      '<input class="libsearch" id="ow-name" placeholder="назва вправи *">'+
+      '<div class="pkrow2"><input class="libsearch" id="ow-sets" type="number" min="1" max="10" value="3" placeholder="підходи">'+
+      '<input class="libsearch" id="ow-reps" value="10–12" placeholder="повторення"></div>'+
+      '<select class="libsel" id="ow-mus"><option value="">М’яз (для аналогів)</option>'+
+      Object.keys(MUS).map(k=>'<option value="'+k+'">'+esc(muUA(k))+'</option>').join('')+'</select>'+
+      '<select class="libsel" id="ow-eq"><option value="other">Обладнання</option>'+
+      Object.keys(EQ).map(k=>'<option value="'+k+'">'+esc(eqUA(k))+'</option>').join('')+'</select>'+
+      '<input class="libsearch" id="ow-desc" placeholder="як виконувати (опис)">'+
+      '<input class="libsearch" id="ow-video" placeholder="посилання на відео (необовʼязково)">'+
+      '<input type="file" accept="image/*" id="ow-file" class="libsearch">'+
+      '<div id="ow-prev"></div>'+
+      (pickMsg?'<p class="pkhint">'+esc(pickMsg)+'</p>':'')+
+      '<button class="iobtn primary" id="ow-add">Додати в план</button>';
+  }
+  ov.innerHTML='<div class="pickin"><div class="pickhead"><b>Додати вправу</b><button class="ib" id="pk-close">✕</button></div>'+
+    modeBar()+body+'</div>';
+  ov.classList.add('open');
+  document.getElementById('pk-close').onclick=()=>ov.classList.remove('open');
+  ov.querySelectorAll('[data-mode]').forEach(c=>c.onclick=()=>{pickMode=c.dataset.mode;pickResults=null;pickMsg='';renderPicker();});
+
+  const addFromLib=id=>{
+    const x=(LIB||[]).find(y=>y.id===id);if(!x||!pickCtx)return;
+    const nit=mkItem(x,3,'10–12');
+    if(pickMode==='video'&&pickVideoUrl)nit.video=pickVideoUrl;
+    pickCtx.p.days[pickCtx.d].items.push(nit);
+    touch();toast('Додано: '+x.name+(nit.video?' (з твоїм відео)':''));ov.classList.remove('open');renderBuilder();};
+  ov.querySelectorAll('.pickrow').forEach(r=>r.onclick=()=>addFromLib(r.dataset.id));
+
+  const keepFocus=id=>setTimeout(()=>{const n=document.getElementById(id);if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}},0);
+  if(pickMode==='lib'){
+    const q=document.getElementById('pk-q');
+    q.oninput=()=>{pickQ=q.value;renderPicker();keepFocus('pk-q');};
+    document.getElementById('pk-eq').onchange=e=>{pickEq=e.target.value;renderPicker();};
+  }
+  if(pickMode==='desc'){
+    const d=document.getElementById('pk-desc');
+    d.oninput=()=>{pickQ=d.value;};
+    const go=()=>{pickResults=smartFind(pickQ,25);pickMsg=pickResults.length?('Знайдено: '+pickResults.length):'';renderPicker();};
+    document.getElementById('pk-find').onclick=go;
+    d.onkeydown=e=>{if(e.key==='Enter')go();};
+  }
+  if(pickMode==='video'){
+    const v=document.getElementById('pk-vid');
+    v.oninput=()=>{pickQ=v.value;};
+    document.getElementById('pk-vgo').onclick=async()=>{
+      const val=(pickQ||'').trim();if(!val)return;
+      let title=val;
+      if(/^https?:\/\//i.test(val)){
+        pickVideoUrl=val;
+        const host=(val.match(/https?:\/\/([^\/]+)/)||[])[1]||'';
+        if(/facebook|fb\.watch|instagram|tiktok/i.test(host)){
+          pickMsg='Facebook/Instagram/TikTok не дають прочитати назву. Встав назву або опис вправи текстом — посилання вже збережено і прикріпиться до вправи.';
+          renderPicker();return;
+        }
+        pickBusy=true;pickMsg='Читаю назву відео…';renderPicker();
+        const t=await videoTitle(val);
+        pickBusy=false;
+        if(t){title=t;pickMsg='Назва відео: '+t;}
+        else{pickMsg='Не вдалося прочитати назву (браузер заблокував запит). Встав назву відео текстом.';renderPicker();return;}
+      }
+      pickResults=smartFind(title,25);
+      if(!pickResults.length)pickMsg=(pickMsg?pickMsg+' · ':'')+'Збігів не знайшлось — спробуй ключові слова.';
+      renderPicker();
+    };
+  }
+  if(pickMode==='ai'){
+    document.getElementById('pk-aigo').onclick=async()=>{
+      const f=document.getElementById('pk-file').files[0];
+      if(!f){pickMsg='Обери фото.';renderPicker();return;}
+      pickBusy=true;pickMsg='Стискаю фото…';renderPicker();
+      try{
+        const data=await fileToDataURL(f,700);
+        pickMsg='Розпізнаю…';renderPicker();
+        const out=await aiRecognize(data);
+        pickBusy=false;
+        const nm=out&&(out.name_en||out.name)||'';
+        pickResults=smartFind(((out&&out.name_uk)||'')+' '+nm+' '+((out&&out.equipment)||''),20);
+        if(!pickResults.length&&nm)pickResults=(LIB||[]).filter(x=>x.img&&x.name.toLowerCase().includes(String(nm).toLowerCase().split(' ')[0])).slice(0,20);
+        pickMsg='Розпізнано: '+((out&&(out.name_uk||out.name))||'—')+(pickResults.length?'':' · збігів у базі немає — додай як «Свою вправу»');
+      }catch(e){
+        pickBusy=false;
+        const m=String(e.message||e);
+        pickMsg=m==='NOT_DEPLOYED'?'Функцію розпізнавання ще не задеплоєно у Supabase (див. AI_SETUP.md).':
+                m==='NOT_LOGGED'?'Спершу увійди в акаунт — розпізнавання доступне лише після входу.':
+                m==='NO_CONFIG'?'Не налаштовано Supabase у config.js.':
+                'Не вдалося розпізнати ('+m+'). Спробуй ще раз або додай вручну.';
+      }
+      renderPicker();
+    };
+  }
+  if(pickMode==='own'){
+    let ownPhoto=null;
+    const fi=document.getElementById('ow-file');
+    fi.onchange=async()=>{
+      const f=fi.files[0];if(!f)return;
+      try{ownPhoto=await fileToDataURL(f,560);
+        document.getElementById('ow-prev').innerHTML='<img src="'+ownPhoto+'" style="width:100%;border-radius:10px;margin:8px 0">';
+      }catch(e){pickMsg='Не вдалося прочитати фото.';renderPicker();}
+    };
+    document.getElementById('ow-add').onclick=()=>{
+      const name=(document.getElementById('ow-name').value||'').trim();
+      if(!name){pickMsg='Впиши назву вправи.';renderPicker();return;}
+      const it=mkCustomItem({name:name,
+        sets:document.getElementById('ow-sets').value||3,
+        reps:document.getElementById('ow-reps').value||'10–12',
+        pm:document.getElementById('ow-mus').value||'',
+        eq:document.getElementById('ow-eq').value||'other',
+        desc:(document.getElementById('ow-desc').value||'').trim(),
+        video:(document.getElementById('ow-video').value||'').trim(),
+        photo:ownPhoto});
+      pickCtx.p.days[pickCtx.d].items.push(it);
+      touch();toast('Додано: '+name);document.getElementById('pickov').classList.remove('open');renderBuilder();
+    };
+  }
+};
+
+/* --- підтримка власних вправ у картках і конструкторі --- */
+const _planCardHTML=planCardHTML;
+planCardHTML=function(p,it,idx,tab){
+  if(!it.own)return _planCardHTML(p,it,idx,tab);
+  const k=ckey(p,it);
+  const ins=(it.ins||[]).map(i=>'<li>'+esc(i)+'</li>').join('');
+  const alts=altsFor(it);
+  const altHtml=alts.length?('<button class="altbtn js-alt">🔁 Аналоги, якщо зайнято ('+alts.length+')</button><div class="alts">'+alts.map(a=>
+    '<div class="altcard"><img class="altph" loading="lazy" src="'+photoSrc(a.img)+'" alt=""><div class="altmeta">'+
+    '<div class="altname">'+esc(a.name)+'</div><span class="altbadge">'+esc(eqUA(a.equipment))+'</span>'+
+    '<a class="altvid" target="_blank" rel="noopener" href="'+ytSearch(a.name)+'">▶ Відео</a></div></div>').join('')+'</div>'):'';
+  return '<article class="card" data-key="'+k+'" data-day="'+tab+'"><div class="body">'+
+    '<div class="figrow"><div class="numbox">'+pad2(idx)+'</div>'+
+    '<div class="fig">'+(it.photoData?'<img class="ph" src="'+it.photoData+'" alt="">':'')+'</div>'+
+    '<div class="headcol"><div class="exname">'+esc(it.name)+'<span class="custflag">своя</span></div>'+
+    '<span class="badge">'+esc((it.sets||3)+' × '+(it.reps||'10'))+'</span></div></div>'+
+    (ins?'<div class="how"><ol class="custins">'+ins+'</ol></div>':'')+
+    '<div class="acts"><a class="vbtn" target="_blank" rel="noopener" href="'+(it.video||ytSearch(it.name))+'">'+
+    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Відео</a>'+
+    '<label class="wlab">кг <input type="number" inputmode="decimal" class="wt-in" min="0" step="1" placeholder="вага"></label>'+
+    '<label class="done"><input type="checkbox" class="ck">Зроблено</label></div>'+
+    altHtml+'</div></article>';
+};
+
 </script>
 </body></html>
