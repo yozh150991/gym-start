@@ -201,6 +201,14 @@ footer.note{margin:22px 4px 0;font-size:12px;color:#7a828a;line-height:1.55}
 .pickin .libsel{width:100%;margin-bottom:8px}
 .pickin .iobtn{width:100%;margin-bottom:8px}
 .pickin input[type=file]{padding:9px;font-size:13px}
+
+.inplan{margin-top:8px;font-size:11.5px;font-weight:700;color:var(--teal);background:var(--tealbg);border:1px solid #cfe6df;border-radius:7px;padding:5px 9px}
+.addrow{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:11px;padding:12px;cursor:pointer;margin-bottom:8px;background:#fff}
+.addrow:active{background:var(--sand)}
+.addrow .an{font-size:14px;font-weight:800}
+.addrow .as{font-size:12px;color:var(--ink2);margin-top:2px}
+.addrow .ago{margin-left:auto;color:var(--acc);font-weight:800;font-size:18px}
+.addback{background:none;border:none;color:var(--ink2);font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;margin-bottom:8px}
 </style></head><body>
 <div class="gate" id="gate"><div class="gatein">
   <div class="glogo">🏋</div>
@@ -453,10 +461,14 @@ function customCardHTML(item, idx, day){
     </div></div></article>`;
 }
 async function addToPlan(id, day){
-  const ex=LIB&&LIB.find(x=>x.id===id); if(!ex)return;
+  const ex=LIBALL().find(x=>x.id===id); if(!ex)return;
   const cid='c_'+ex.id;
   s.custom[day]=s.custom[day]||[];
   if(s.custom[day].some(x=>x.id===cid)){toast('Вже у Дні '+day.toUpperCase());return;}
+  if(ex.own){
+    s.custom[day].push({id:cid,name:ex.name,tag:(ex.sets||3)+' × '+(ex.reps||'10–12'),ins:ex.ins||[],photo:ex.photoData||null,photo2:null});
+    touch();toast('Додано в День '+day.toUpperCase()+' ✓');renderLibResults();return;
+  }
   toast('Завантажую фото для офлайн…');
   try{
     const b64=async rel=>{const r=await fetch(IMG_BASE+rel);if(!r.ok)throw 0;const bl=await r.blob();return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(bl);});};
@@ -528,7 +540,7 @@ function libMatch(x){
 }
 function renderLibResults(){
   const box=document.getElementById('lib-results'); if(!box)return;
-  const all=LIB.filter(libMatch);
+  const all=LIBALL().filter(libMatch);
   const cnt=document.getElementById('lib-count'); if(cnt)cnt.textContent=`Знайдено: ${all.length}`;
   const shown=all.slice(0,libLimit);
   box.innerHTML=shown.map(x=>{
@@ -538,11 +550,11 @@ function renderLibResults(){
                `<span class="ltag">${lvUA(x.level)}</span>`;
     const ins=(x.ins||[]).map(i=>`<li>${i.replace(/</g,'&lt;')}</li>`).join('');
     const yurl='https://www.youtube.com/results?search_query='+encodeURIComponent(x.name+' exercise technique');
-    const ph=(x.img?`<img loading="lazy" src="${IMG_BASE}${x.img}" alt="">`:'')+(x.img2?`<img loading="lazy" src="${IMG_BASE}${x.img2}" alt="">`:'');
+    const ph=x.own?(x.photoData?`<img src="${x.photoData}" alt="">`:''):((x.img?`<img loading="lazy" src="${IMG_BASE}${x.img}" alt="">`:'')+(x.img2?`<img loading="lazy" src="${IMG_BASE}${x.img2}" alt="">`:''));
     return `<div class="libcard" data-id="${x.id}">
       <div class="libhead js-exp">
-        ${x.img?`<img class="libthumb" loading="lazy" src="${IMG_BASE}${x.img}" alt="">`:'<div class="libthumb"></div>'}
-        <div class="libmeta"><div class="libname">${x.name}</div><div class="libtags">${tags}</div></div>
+        ${libImg(x)?`<img class="libthumb" loading="lazy" src="${libImg(x)}" alt="">`:'<div class="libthumb"></div>'}
+        <div class="libmeta"><div class="libname">${x.name}${x.own?'<span class="custflag">своя</span>':''}</div><div class="libtags">${tags}</div></div>
         <button class="lfav${fav?' on':''}" data-fav="${x.id}" title="Обране">${fav?'★':'☆'}</button>
       </div>
       <div class="libdet">
@@ -550,9 +562,9 @@ function renderLibResults(){
         <ol>${ins}</ol>
         <a class="libvid" target="_blank" rel="noopener" href="${yurl}">▶ Відео на YouTube</a>
         <div class="libaddrow">
-          <button class="libadd${inPlan(x.id,'a')?' added':''}" data-add="${x.id}" data-day="a">${inPlan(x.id,'a')?'✓ у Дні A':'➕ У День A'}</button>
-          <button class="libadd${inPlan(x.id,'b')?' added':''}" data-add="${x.id}" data-day="b">${inPlan(x.id,'b')?'✓ у Дні B':'➕ У День B'}</button>
-        </div>
+          <button class="libadd" data-addto="${x.id}">➕ Додати в план…</button>
+          ${x.own?`<button class="libadd" style="flex:0 0 auto;background:#fff;color:var(--red);border:1px solid #e7b9b3" data-delown="${x.id}">🗑</button>`:''}
+        </div>${(()=>{const w=whereAdded(x.id);return w.length?'<div class="inplan">Уже в: '+w.map(esc).join(' · ')+'</div>':'';})()}
       </div></div>`;
   }).join('') + (all.length>libLimit?`<button class="libmore" id="lib-more">Показати ще (${all.length-libLimit})</button>`:'');
   box.querySelectorAll('.js-exp').forEach(h=>h.addEventListener('click',e=>{
@@ -565,7 +577,9 @@ function renderLibResults(){
     touch();btn.classList.toggle('on');btn.textContent=s.favs.includes(id)?'★':'☆';
     if(libF.fav)renderLibResults();
   }));
-  box.querySelectorAll('.libadd').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();addToPlan(btn.dataset.add,btn.dataset.day);}));
+  box.querySelectorAll('.libadd').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();
+    if(btn.dataset.delown){if(confirm('Видалити свою вправу з бібліотеки? У планах, куди вона вже додана, вона залишиться.')){s.myEx=(s.myEx||[]).filter(m=>m.id!==btn.dataset.delown);touch();renderLibResults();toast('Видалено');}return;}
+    openAddTo(btn.dataset.addto);}));
   const more=document.getElementById('lib-more'); if(more)more.addEventListener('click',()=>{libLimit+=60;renderLibResults();});
 }
 
@@ -636,7 +650,7 @@ function photoSrc(p){return p?(photoCache[p]||IMG_BASE+p):''}
 function uid(pfx){return (pfx||'i')+Math.random().toString(36).slice(2,9)}
 
 const _normalize=normalize;
-normalize=function(o){o=_normalize(o);o.plans=o.plans||[];o.activePlan=o.activePlan||'builtin';o.planChosen=!!o.planChosen;return o;};
+normalize=function(o){o=_normalize(o);o.plans=o.plans||[];o.activePlan=o.activePlan||'builtin';o.planChosen=!!o.planChosen;o.myEx=o.myEx||[];return o;};
 s=normalize(s);
 
 function activePlan(){if(!s.activePlan||s.activePlan==='builtin')return null;return (s.plans||[]).find(p=>p.id===s.activePlan)||null;}
@@ -984,7 +998,7 @@ function renderPicker(){
   let ov=document.getElementById('pickov');
   if(!ov){ov=document.createElement('div');ov.id='pickov';ov.className='pickov';document.body.appendChild(ov);}
   const eqKeys=Object.keys(EQ);
-  const list=(LIB||[]).filter(x=>{
+  const list=LIBALL().filter(x=>{
     if(pickEq&&x.equipment!==pickEq)return false;
     if(pickQ){const hay=(x.name+' '+(x.pm||[]).map(muUA).join(' ')).toLowerCase();if(!hay.includes(pickQ.toLowerCase()))return false;}
     return true;}).slice(0,80);
@@ -1091,11 +1105,12 @@ function smartFind(text,limit){
   });
   if(!en.size&&!mus.size&&!eqs.size)return[];
   const res=[];
-  for(const x of LIB){
-    if(!x.img)continue;
+  for(const x of LIBALL()){
+    if(!x.img&&!x.photoData)continue;
     const nm=x.name.toLowerCase();
     let sc=0;
     en.forEach(t=>{if(nm.includes(t))sc+=4;});
+    if(x.own){words.forEach(w=>{const st=w.slice(0,Math.max(4,w.length-2));if(st&&nm.includes(st))sc+=6;});}
     mus.forEach(m=>{if((x.pm||[]).includes(m))sc+=3;else if((x.sm||[]).includes(m))sc+=1;});
     eqs.forEach(e=>{if(x.equipment===e)sc+=3;});
     if(sc>0){
@@ -1149,7 +1164,7 @@ async function aiRecognize(dataUrl){
   const base=(window.SUPABASE_URL||'').replace(/\/+$/,'');
   if(!base||/ВСТАВ/.test(base))throw new Error('NO_CONFIG');
   let token=window.SUPABASE_ANON_KEY||'';
-  try{if(sb){const{data}=await sb.auth.getSession();if(data&&data.session&&data.session.access_token)token=data.session.access_token;else throw new Error('NOT_LOGGED');}}catch(e){if(String(e.message)==='NOT_LOGGED')throw e;}
+  if(!sb)throw new Error('NOT_LOGGED');try{const{data}=await sb.auth.getSession();if(data&&data.session&&data.session.access_token)token=data.session.access_token;else throw new Error('NOT_LOGGED');}catch(e){throw new Error('NOT_LOGGED');}
   const r=await fetch(base+'/functions/v1/recognize',{method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':window.SUPABASE_ANON_KEY||''},
     body:JSON.stringify({image:String(dataUrl).split(',')[1],media_type:'image/jpeg'})});
@@ -1165,8 +1180,8 @@ openPicker=function(p,dayIdx){pickCtx={p:p,d:dayIdx};pickQ='';pickEq='';pickMode
   toast('Відкриваю бібліотеку…');ensureLib().then(renderPicker).catch(()=>toast('Не вдалося завантажити базу вправ'));};
 
 function rowHTML(x){
-  return '<div class="pickrow" data-id="'+x.id+'"><img loading="lazy" src="'+photoSrc(x.img)+'" alt="">'+
-    '<div><div class="pkname">'+esc(x.name)+'</div><div class="pktags">'+
+  return '<div class="pickrow" data-id="'+x.id+'"><img loading="lazy" src="'+libImg(x)+'" alt="">'+
+    '<div><div class="pkname">'+esc(x.name)+(x.own?' <span class="custflag">своя</span>':'')+'</div><div class="pktags">'+
     esc((x.pm||[]).slice(0,2).map(muUA).join(', '))+' · '+esc(eqUA(x.equipment))+'</div></div>'+
     '<span class="pkadd">＋</span></div>';
 }
@@ -1180,7 +1195,7 @@ renderPicker=function(){
   let body='';
   if(pickMode==='lib'){
     const eqKeys=Object.keys(EQ);
-    const list=(LIB||[]).filter(x=>{
+    const list=LIBALL().filter(x=>{
       if(pickEq&&x.equipment!==pickEq)return false;
       if(pickQ){const hay=(x.name+' '+(x.pm||[]).map(muUA).join(' ')).toLowerCase();if(!hay.includes(pickQ.toLowerCase()))return false;}
       return true;}).slice(0,80);
@@ -1233,8 +1248,8 @@ renderPicker=function(){
   ov.querySelectorAll('[data-mode]').forEach(c=>c.onclick=()=>{pickMode=c.dataset.mode;pickResults=null;pickMsg='';renderPicker();});
 
   const addFromLib=id=>{
-    const x=(LIB||[]).find(y=>y.id===id);if(!x||!pickCtx)return;
-    const nit=mkItem(x,3,'10–12');
+    const x=LIBALL().find(y=>y.id===id);if(!x||!pickCtx)return;
+    const nit=instFromEntry(x);
     if(pickMode==='video'&&pickVideoUrl)nit.video=pickVideoUrl;
     pickCtx.p.days[pickCtx.d].items.push(nit);
     touch();toast('Додано: '+x.name+(nit.video?' (з твоїм відео)':''));ov.classList.remove('open');renderBuilder();};
@@ -1314,16 +1329,17 @@ renderPicker=function(){
     document.getElementById('ow-add').onclick=()=>{
       const name=(document.getElementById('ow-name').value||'').trim();
       if(!name){pickMsg='Впиши назву вправи.';renderPicker();return;}
-      const it=mkCustomItem({name:name,
+      const tpl={id:uid('own_'),name:name,
         sets:document.getElementById('ow-sets').value||3,
         reps:document.getElementById('ow-reps').value||'10–12',
-        pm:document.getElementById('ow-mus').value||'',
+        pm:(document.getElementById('ow-mus').value||'')?[document.getElementById('ow-mus').value]:[],
         eq:document.getElementById('ow-eq').value||'other',
-        desc:(document.getElementById('ow-desc').value||'').trim(),
+        ins:((document.getElementById('ow-desc').value||'').trim())?[(document.getElementById('ow-desc').value||'').trim()]:[],
         video:(document.getElementById('ow-video').value||'').trim(),
-        photo:ownPhoto});
-      pickCtx.p.days[pickCtx.d].items.push(it);
-      touch();toast('Додано: '+name);document.getElementById('pickov').classList.remove('open');renderBuilder();
+        photoData:ownPhoto||null};
+      s.myEx=s.myEx||[];s.myEx.push(tpl);
+      pickCtx.p.days[pickCtx.d].items.push(instFromEntry(Object.assign({},tpl,{own:true,equipment:tpl.eq})));
+      touch();toast('Додано: '+name+' · тепер вона є в бібліотеці');document.getElementById('pickov').classList.remove('open');renderBuilder();
     };
   }
 };
@@ -1351,6 +1367,83 @@ planCardHTML=function(p,it,idx,tab){
     '<label class="done"><input type="checkbox" class="ck">Зроблено</label></div>'+
     altHtml+'</div></article>';
 };
+
+
+
+/* ==================== ДОДАВАННЯ З БІБЛІОТЕКИ У БУДЬ-ЯКИЙ ПЛАН/ДЕНЬ ==================== */
+function whereAdded(libId){
+  const out=[];
+  if((s.custom.a||[]).some(x=>x.id==='c_'+libId))out.push('Рекомендований · День A');
+  if((s.custom.b||[]).some(x=>x.id==='c_'+libId))out.push('Рекомендований · День B');
+  (s.plans||[]).forEach(p=>p.days.forEach(d=>{
+    if((d.items||[]).some(it=>it.libId===libId||it.ownId===libId))out.push(p.name+' · '+d.name);
+  }));
+  return out;
+}
+let addCtx=null;
+function openAddTo(libId){addCtx={libId:libId,planId:null};ensureLib().then(renderAddTo).catch(()=>toast('Не вдалося завантажити базу вправ'));}
+function renderAddTo(){
+  let ov=document.getElementById('addov');
+  if(!ov){ov=document.createElement('div');ov.id='addov';ov.className='pickov';document.body.appendChild(ov);}
+  const x=LIBALL().find(y=>y.id===addCtx.libId);
+  const title=x?x.name:'';
+  let body='';
+  if(!addCtx.planId){
+    body='<p class="pkhint">Куди додати <b>'+esc(title)+'</b>?</p>'+
+      '<div class="addrow" data-plan="builtin"><div><div class="an">Рекомендований</div>'+
+      '<div class="as">від тренера · 2 дні</div></div><span class="ago">›</span></div>'+
+      (s.plans||[]).map(p=>'<div class="addrow" data-plan="'+p.id+'"><div><div class="an">'+esc(p.name)+
+        '</div><div class="as">'+p.days.length+' дн. · '+(p.type==='generated'?'підібраний':'власний')+
+        '</div></div><span class="ago">›</span></div>').join('')+
+      ((s.plans||[]).length?'':'<p class="empty">Інших планів ще немає — створи їх у вкладці «Плани».</p>');
+  }else{
+    const p=addCtx.planId==='builtin'?null:(s.plans||[]).find(y=>y.id===addCtx.planId);
+    const days=p?p.days.map((d,i)=>[String(i),d.name+' · '+(d.place==='home'?'вдома':'зал')+' · '+d.items.length+' впр.'])
+                 :[['a','День A'],['b','День B']];
+    body='<button class="addback" id="ad-back">‹ Назад до планів</button>'+
+      '<p class="pkhint">Обери день у плані <b>'+esc(p?p.name:'Рекомендований')+'</b>:</p>'+
+      days.map(([k,l])=>'<div class="addrow" data-day="'+k+'"><div><div class="an">'+esc(l)+
+        '</div></div><span class="ago">＋</span></div>').join('');
+  }
+  ov.innerHTML='<div class="pickin"><div class="pickhead"><b>Додати в план</b><button class="ib" id="ad-close">✕</button></div>'+body+'</div>';
+  ov.classList.add('open');
+  document.getElementById('ad-close').onclick=()=>ov.classList.remove('open');
+  const bk=document.getElementById('ad-back');if(bk)bk.onclick=()=>{addCtx.planId=null;renderAddTo();};
+  ov.querySelectorAll('[data-plan]').forEach(r=>r.onclick=()=>{addCtx.planId=r.dataset.plan;renderAddTo();});
+  ov.querySelectorAll('[data-day]').forEach(r=>r.onclick=async()=>{
+    const key=r.dataset.day;
+    ov.classList.remove('open');
+    if(addCtx.planId==='builtin'){await addToPlan(addCtx.libId,key);}
+    else{
+      const p=(s.plans||[]).find(y=>y.id===addCtx.planId);
+      const ex=LIBALL().find(y=>y.id===addCtx.libId);
+      if(!p||!ex)return;
+      const day=p.days[+key];if(!day)return;
+      if((day.items||[]).some(it=>(it.libId&&it.libId===ex.id)||(it.ownId&&it.ownId===ex.id))){toast('Ця вправа вже є в «'+day.name+'»');return;}
+      day.items.push(instFromEntry(ex));touch();
+      toast('Додано в «'+p.name+' · '+day.name+'»');
+    }
+    if(cur==='library')renderLibResults();
+  });
+}
+
+
+
+/* ---------- особиста бібліотека власних вправ ---------- */
+function myExLib(){
+  return (s.myEx||[]).map(e=>({id:e.id,name:e.name,level:'beginner',equipment:e.eq||'other',
+    force:null,mechanic:null,category:'strength',pm:e.pm||[],sm:[],ins:e.ins||[],
+    img:null,img2:null,own:true,photoData:e.photoData||null,video:e.video||'',
+    sets:e.sets||3,reps:e.reps||'10–12'}));
+}
+function LIBALL(){return (LIB||[]).concat(myExLib());}
+function libImg(x){return x&&x.own?(x.photoData||''):(x&&x.img?photoSrc(x.img):'');}
+function instFromEntry(x){
+  if(x&&x.own)return {uid:uid('i'),libId:null,ownId:x.id,own:true,name:x.name,ins:x.ins||[],
+    photoData:x.photoData||null,img:null,img2:null,eq:x.equipment||x.eq||'other',pm:x.pm||[],
+    sets:x.sets||3,reps:x.reps||'10–12',video:x.video||''};
+  return mkItem(x,3,'10–12');
+}
 
 </script>
 </body></html>
