@@ -1700,5 +1700,62 @@ function addRecognized(r){
   if(cur==='builder')renderBuilder();
 }
 
+/* === mod v19: винесення base64-фото власних вправ у Supabase Storage ===
+   Base64 знімки власних вправ більше НЕ летять у progress.data. При першому
+   синку вони підвантажуються в бакет "exphotos", а в стані лишається публічний
+   URL. Усі місця читання роблять <img src>, тож URL працює без змін.
+   Потрібне разове налаштування бакета в Supabase — див. STORAGE_SETUP.md. */
+const EXPHOTO_BUCKET='exphotos';
+function _photoRefs(){
+  const r=[];
+  (s.myEx||[]).forEach(o=>{r.push([o,'photoData'],[o,'photo2Data']);});
+  (s.plans||[]).forEach(p=>(p.days||[]).forEach(d=>(d.items||[]).forEach(o=>{r.push([o,'photoData'],[o,'photo2Data']);})));
+  Object.values(s.custom||{}).forEach(a=>{if(Array.isArray(a))a.forEach(o=>{r.push([o,'photo'],[o,'photo2']);});});
+  return r;
+}
+function _isDataUrl(v){return typeof v==='string'&&v.slice(0,5)==='data:';}
+function _hashStr(str){let h=5381,i=str.length;while(i)h=(h*33^str.charCodeAt(--i))>>>0;return h.toString(36);}
+function _dataUrlToBlob(u){
+  const mime=u.slice(5,u.indexOf(';'))||'image/jpeg';
+  const bin=atob(u.slice(u.indexOf(',')+1));
+  const arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:mime});
+}
+async function _uploadPhoto(dataUrl){
+  const blob=_dataUrlToBlob(dataUrl);
+  const ext=((blob.type.split('/')[1]||'jpg').replace('jpeg','jpg')).replace(/[^a-z0-9]/gi,'')||'jpg';
+  const path=user.id+'/'+_hashStr(dataUrl)+'.'+ext;
+  const{error}=await sb.storage.from(EXPHOTO_BUCKET).upload(path,blob,{upsert:true,contentType:blob.type,cacheControl:'31536000'});
+  if(error&&!/exist/i.test(error.message||''))throw error;
+  return sb.storage.from(EXPHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+let _offloading=false;
+async function offloadPhotos(){
+  if(!sb||!user||_offloading)return;
+  const refs=_photoRefs().filter(([o,k])=>_isDataUrl(o[k]));
+  if(!refs.length)return;
+  _offloading=true;let changed=false;const seen={};
+  try{
+    for(const [o,k] of refs){
+      const v=o[k];
+      try{
+        if(!seen[v])seen[v]=await _uploadPhoto(v);
+        o[k]=seen[v];changed=true;
+      }catch(e){ /* upload не вдався — лишаємо base64, повторимо наступного разу */ }
+    }
+    if(changed)persist();
+  }finally{_offloading=false;}
+}
+async function _upsertState(){
+  if(!sb||!user)return;
+  try{const{error}=await sb.from('progress').upsert({user_id:user.id,data:s,updated_at:new Date(s.updated_at||Date.now()).toISOString()});if(error)throw error;setSyncStatus('Синхронізовано ✓');}
+  catch(e){setSyncStatus('Помилка синхронізації');}
+}
+/* перевизначаємо pushRemote: спершу винести фото у Storage, потім слати легкий стан */
+pushRemote=async function(){ if(!sb||!user)return; await offloadPhotos(); await _upsertState(); };
+/* одноразова міграція старих base64, збережених до v19 */
+setTimeout(()=>{ if(sb&&user)pushRemote(); },5000);
+
 </script>
 </body></html>
