@@ -14,8 +14,13 @@
 2. Натисни **+** угорі праворуч → **New repository**.
 3. Назва, напр. `gym-start`. Постав **Public**. Натисни **Create repository**.
 4. На сторінці репозиторію: **Add file → Upload files**.
-5. Перетягни **усі файли з цієї теки** (index.html, config.js, manifest.webmanifest,
-   service-worker.js, icon-192.png, icon-512.png). Натисни **Commit changes**.
+5. Перетягни **усі файли з цієї теки**. Обовʼязкові:
+   `index.html`, `config.js`, `exercises.json` *(без нього не працює бібліотека вправ)*,
+   `manifest.webmanifest`, `service-worker.js`, `icon-192.png`, `icon-512.png`.
+   Необовʼязкові (для окремих функцій): `storage_setup.sql` + `STORAGE_SETUP.md`
+   *(синхронізація фото власних вправ)*, `AI_SETUP.md` *(розпізнавання по фото)*.
+   Файл `HANDOFF.md` — це технічний документ для розробки, викладати не обовʼязково.
+   Натисни **Commit changes**.
 6. Зверху відкрий **Settings** → ліворуч **Pages**.
 7. *Build and deployment* → *Source*: **Deploy from a branch**.
    Гілка **main**, тека **/(root)** → **Save**.

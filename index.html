@@ -1757,5 +1757,344 @@ pushRemote=async function(){ if(!sb||!user)return; await offloadPhotos(); await 
 /* одноразова міграція старих base64, збережених до v19 */
 setTimeout(()=>{ if(sb&&user)pushRemote(); },5000);
 
+/* === mod v20: динаміка ваги по вправі + підказка прогресії ===
+   Читає s.history (пише finishDay, ключ = item.key = data-key картки).
+   Під кожну картку вправи додається кнопка «Динаміка ваги», що розгортає
+   спарклайн ваги по сесіях і, якщо остання вага повторилась двічі поспіль,
+   мʼяку підказку «спробуй +2.5 кг». Жодне джерело даних не змінюється. */
+(function(){
+  var st=document.createElement('style');
+  st.textContent=
+   '.dyn-btn{width:100%;margin-top:10px;background:#fff;border:1px dashed var(--line);color:var(--ink2);border-radius:11px;padding:10px;font-weight:700;font-size:13px;cursor:pointer}'
+  +'.dyn-btn b{color:var(--acc)}'
+  +'.dyn-wrap{margin-top:10px;background:var(--paper,#fafafa);border:1px solid var(--line);border-radius:11px;padding:12px}'
+  +'.dyn-svg{display:block;background:#fff;border-radius:8px;border:1px solid var(--line)}'
+  +'.dyn-stats{margin-top:8px;font-size:12.5px;color:var(--ink2);font-weight:600;font-variant-numeric:tabular-nums}'
+  +'.dyn-stats b{color:var(--ink)}'
+  +'.dyn-hint{margin-top:8px;font-size:12.5px;font-weight:700;color:var(--teal);background:var(--tealbg,#eef7f4);border:1px solid #cfe6df;border-radius:8px;padding:7px 10px;line-height:1.35}'
+  +'.dyn-hint b{color:var(--teal)}'
+  +'.dyn-empty{font-size:12.5px;color:var(--ink2)}';
+  document.head.appendChild(st);
+})();
+function _num(v){var n=parseFloat(String(v==null?'':v).replace(',','.'));return isNaN(n)?null:n;}
+function _fmt(n){return (Math.round(n*100)/100).toString();}
+function exHistory(key){
+  var out=[]; var H=(s.history||[]).slice().reverse(); /* найстаріші перші */
+  for(var i=0;i<H.length;i++){var its=H[i].items||[];for(var j=0;j<its.length;j++){var it=its[j];
+    if(it.key===key){var w=_num(it.weight);if(w!=null)out.push({date:H[i].date,w:w});}}}
+  return out;
+}
+function progressionHint(key){
+  var h=exHistory(key); if(h.length<2)return null;
+  var a=h[h.length-1].w, b=h[h.length-2].w;
+  return (a>0 && a===b)?a:null;
+}
+function _sparkSVG(h){
+  var W=248,H=60,pad=9,ws=h.map(function(x){return x.w;});
+  var mn=Math.min.apply(null,ws),mx=Math.max.apply(null,ws); if(mn===mx){mn-=1;mx+=1;}
+  var n=h.length;
+  function X(i){return n===1?W/2:pad+i*(W-2*pad)/(n-1);}
+  function Y(w){return H-pad-(w-mn)*(H-2*pad)/(mx-mn);}
+  var pts=h.map(function(x,i){return X(i)+','+Y(x.w);}).join(' ');
+  var dots=h.map(function(x,i){return '<circle cx="'+X(i)+'" cy="'+Y(x.w)+'" r="2.6" fill="var(--acc)"/>';}).join('');
+  var poly=n>1?'<polyline points="'+pts+'" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>':'';
+  return '<svg class="dyn-svg" viewBox="0 0 '+W+' '+H+'" width="100%" height="60" preserveAspectRatio="none">'+poly+dots+'</svg>';
+}
+function dynHTML(key){
+  var h=exHistory(key);
+  if(!h.length)return '<div class="dyn-empty">Ще нема записаної ваги для цієї вправи. Постав вагу й натисни «Завершити день» — динаміка зʼявиться тут.</div>';
+  var last=h[h.length-1].w, mx=Math.max.apply(null,h.map(function(x){return x.w;}));
+  var hint=progressionHint(key);
+  return _sparkSVG(h)
+    +'<div class="dyn-stats">остання <b>'+_fmt(last)+' кг</b> · макс <b>'+_fmt(mx)+' кг</b> · записів '+h.length+'</div>'
+    +(hint?'<div class="dyn-hint">Двічі поспіль на '+_fmt(hint)+' кг. Якщо останній підхід ішов рівно — можеш спробувати <b>'+_fmt(hint+2.5)+' кг</b>. Без ривка, дихання рівне.</div>':'');
+}
+function injectDyn(){
+  var cards=document.querySelectorAll('article.card[data-key]');
+  for(var i=0;i<cards.length;i++){var card=cards[i];
+    if(card.querySelector(':scope > .body > .dyn-btn')||card.querySelector('.dyn-btn'))continue;
+    var body=card.querySelector('.body')||card, key=card.getAttribute('data-key');
+    var hint=progressionHint(key);
+    var b=document.createElement('button');
+    b.className='dyn-btn'; b.setAttribute('data-dynkey',key);
+    b.innerHTML='📈 Динаміка ваги'+(hint?' · <b>+2.5 кг?</b>':'');
+    var wrap=document.createElement('div'); wrap.className='dyn-wrap'; wrap.style.display='none';
+    body.appendChild(b); body.appendChild(wrap);
+  }
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest?e.target.closest('.dyn-btn'):null; if(!b)return;
+  var wrap=b.nextElementSibling; if(!wrap||!wrap.classList.contains('dyn-wrap'))return;
+  if(wrap.style.display==='none'){wrap.innerHTML=dynHTML(b.getAttribute('data-dynkey'));wrap.style.display='block';}
+  else{wrap.style.display='none';}
+});
+(function(){ var _r=render; render=function(){var out=_r.apply(this,arguments);try{injectDyn();}catch(e){}return out;}; })();
+try{injectDyn();}catch(e){}
+document.addEventListener('DOMContentLoaded',function(){try{injectDyn();}catch(e){}});
+
+/* === mod v21: аналоги для вручну доданих вправ у вбудованому плані ===
+   Раніше customCardHTML не викликав altsFor, а додані у s.custom вправи не
+   зберігали pm/libId/eq. Тут: (1) відновлюємо ці поля з LIB за id виду
+   'c_<libId>' (працює і для раніше доданих), (2) домальовуємо блок аналогів
+   тією ж розміткою, що й планові картки. Тумблер .js-alt біндиться наявним
+   обробником у рендері вбудованого плану. Джерела даних не змінюються. */
+function _altItemFor(item){
+  if(item&&item.pm&&item.pm.length&&item.libId!=null)return item;
+  if(typeof LIB!=='undefined'&&LIB&&item&&typeof item.id==='string'&&item.id.slice(0,2)==='c_'){
+    var lx=LIB.find(function(x){return x.id===item.id.slice(2);});
+    if(lx)return {libId:lx.id,pm:lx.pm||[],eq:lx.equipment};
+  }
+  return {libId:item&&item.libId,pm:(item&&item.pm)||[],eq:item&&item.eq};
+}
+(function(){
+  if(typeof customCardHTML!=='function')return;
+  var _cc=customCardHTML;
+  customCardHTML=function(item,idx,day){
+    var html=_cc(item,idx,day);
+    var alts=[]; try{alts=altsFor(_altItemFor(item));}catch(e){alts=[];}
+    if(!alts.length)return html;
+    var altHtml='<button class="altbtn js-alt">🔁 Аналоги, якщо зайнято ('+alts.length+')</button><div class="alts">'+alts.map(function(a){
+      return '<div class="altcard"><img class="altph" loading="lazy" src="'+photoSrc(a.img)+'" alt=""><div class="altmeta">'
+        +'<div class="altname">'+esc(a.name)+'</div><span class="altbadge">'+esc(eqUA(a.equipment))+' · '+esc(lvUA(a.level))+'</span>'
+        +'<ul class="altwatch">'+(a.ins||[]).slice(0,2).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>'
+        +'<a class="altvid" target="_blank" rel="noopener" href="'+ytSearch(a.name)+'">▶ Відео</a></div></div>';
+    }).join('')+'</div>';
+    /* вставляємо блок аналогів усередину .body, одразу перед його закриттям */
+    return html.replace(/<\/div><\/article>\s*$/, altHtml+'</div></article>');
+  };
+})();
+
+/* === mod v22: україномовні підказки «на що звернути увагу» в бібліотеці ===
+   Поле pattern є лише в кількох вправ, тож підказки будуються з надійних полів
+   (category / pm / equipment / mechanic / force), присутніх на всіх 880 вправах.
+   Підказки ЗАГАЛЬНІ (техніка/безпека), без прив'язки до конкретного профілю.
+   Вставляються у розгортку вправи (.libdet) перед англ. інструкціями. */
+(function(){
+  var st=document.createElement('style');
+  st.textContent=
+   '.uahint{background:var(--tealbg,#eef7f4);border:1px solid #cfe6df;border-radius:10px;padding:9px 12px;margin:2px 0 10px}'
+  +'.uahint b{display:block;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--teal);margin-bottom:5px}'
+  +'.uahint ul{margin:0;padding-left:18px}'
+  +'.uahint li{font-size:13px;color:var(--ink);line-height:1.4;margin:3px 0;font-weight:600}';
+  document.head.appendChild(st);
+})();
+var _MUSCLE_HINT={
+ 'lower back':'Тримай спину нейтральною, не округлюй поперек; рух іде від стегон.',
+ 'abdominals':'Не тягни себе за шию — працюй пресом, а не руками.',
+ 'quadriceps':'Коліно веди за напрямком стопи, не завалюй усередину.',
+ 'hamstrings':'Рух від стегон, спина рівна; не «кругли» поперек.',
+ 'glutes':'Поштовх стегнами, коліна стабільні; без прогину в попереку.',
+ 'calves':'Працюй у повній амплітуді, без пружинистих ривків.',
+ 'shoulders':'Не піднімай плечі до вух; рух підконтрольний, без ривка.',
+ 'chest':'Лопатки зведені й опущені; лікті не завалюй занадто вниз.',
+ 'lats':'Тягни лопатками, а не кистями; без розгойдування корпусом.',
+ 'middle back':'Зводь лопатки, спина рівна; без ривків.',
+ 'traps':'Плечі вгору без ривка; не крути шиєю під навантаженням.',
+ 'biceps':'Лікті притиснуті й нерухомі; без розгойдування корпусом.',
+ 'triceps':'Лікті стабільні — рухається лише передпліччя.',
+ 'forearms':'Малий діапазон і контрольований темп; без ривків.',
+ 'neck':'Дуже обережно й малою амплітудою — шия чутлива.',
+ 'adductors':'Контрольована амплітуда, без різких розтягів.',
+ 'abductors':'Контрольована амплітуда, без різких розтягів.'
+};
+function exHint(ex){
+  if(!ex)return null;
+  var out=[], pm=(ex.pm&&ex.pm[0])||'', cat=ex.category, eq=ex.equipment;
+  if(cat==='stretching')out.push('Тягнись плавно до легкого натягу — не до болю, без пружинистих ривків.');
+  else if(cat==='plyometrics')out.push('Вибухова вправа: спершу розминка, мʼяке приземлення на всю стопу.');
+  else if(cat==='olympic weightlifting'||cat==='powerlifting')out.push('Складна техніка — починай з порожнього грифа чи малої ваги, краще під наглядом.');
+  else if(cat==='strongman')out.push('Велике навантаження на спину й кор — техніка передусім, вага потім.');
+  if(_MUSCLE_HINT[pm])out.push(_MUSCLE_HINT[pm]);
+  if(out.length<3){
+    if(ex.force==='static')out.push('Це утримання — дихай рівно, не затримуй дихання.');
+    else if(eq==='barbell'||eq==='dumbbell'||eq==='kettlebells'||eq==='e-z curl bar')out.push('Вільна вага: почни легко — техніка важливіша за кілограми.');
+    else if(eq==='cable'||eq==='machine')out.push('Веди рух підконтрольно по всій амплітуді, без інерції.');
+    else if(eq==='bands')out.push('Слідкуй, щоб стрічка не зісковзнула; контролюй зворотний рух.');
+    else if(ex.mechanic==='compound')out.push('Багатосуглобова вправа — добре розігрійся перед робочими підходами.');
+  }
+  return out.length?out.slice(0,3):null;
+}
+function injectLibHints(){
+  var cards=document.querySelectorAll('.libcard[data-id]');
+  for(var i=0;i<cards.length;i++){var card=cards[i];
+    var det=card.querySelector('.libdet'); if(!det||det.querySelector('.uahint'))continue;
+    var ex=(typeof LIBALL==='function')?LIBALL().find(function(e){return e.id===card.getAttribute('data-id');}):null;
+    if(!ex)continue;
+    var h=exHint(ex); if(!h)continue;
+    var div=document.createElement('div'); div.className='uahint';
+    div.innerHTML='<b>На що звернути увагу</b><ul>'+h.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ul>';
+    var ol=det.querySelector('ol');
+    if(ol)det.insertBefore(div,ol); else det.insertBefore(div,det.firstChild);
+  }
+}
+(function(){ if(typeof renderLibResults!=='function')return;
+  var _r=renderLibResults; renderLibResults=function(){var o=_r.apply(this,arguments);try{injectLibHints();}catch(e){}return o;};
+})();
+try{injectLibHints();}catch(e){}
+
+/* === mod v23: таймаут для videoTitle() (надійність, #2) ===
+   noembed.com віддає CORS "*" і працює з браузера; youtube oembed CORS блокує,
+   але помилка тихо ловиться (нешкідливий фолбек). Реальний ризик був інший:
+   fetch без таймауту міг «зависнути», лишивши стан «Читаю назву відео…».
+   Додаємо таймаут через AbortController → швидкий перехід на ручне введення. */
+(function(){
+  if(typeof videoTitle!=='function')return;
+  function _fetchT(url,ms){
+    var ctl=('AbortController' in window)?new AbortController():null;
+    var to=ctl?setTimeout(function(){try{ctl.abort();}catch(e){}},ms):null;
+    var p=fetch(url,ctl?{signal:ctl.signal}:undefined);
+    return p.finally?p.finally(function(){if(to)clearTimeout(to);}):p;
+  }
+  videoTitle=async function(url){
+    var tries=['https://noembed.com/embed?url='+encodeURIComponent(url),
+               'https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url)];
+    for(var i=0;i<tries.length;i++){
+      try{var r=await _fetchT(tries[i],6000);if(!r.ok)continue;var j=await r.json();if(j&&j.title)return j.title;}
+      catch(e){}
+    }
+    return null;
+  };
+})();
+
+/* === mod v24: план-перший флоу ===
+   1) До вибору плану активні лише Прогрес/Бібліотека/Плани (в хедері); стрічка
+      днів прихована, старт — екран «Плани».
+   2) Після вибору: Прогрес/Бібліотека/Плани — кнопки в <header>; під шапкою лише
+      дні активного плану. Вбудований «Старт у залі» — одна з карток у «Планах».
+   3) Розминка й кардіо — окремі НЕобовʼязкові кроки в дні (згорнуті <details> +
+      галочка «зроблено», що не блокує «Завершити»). Для вбудованого беруться
+      DATA.warm/DATA.cardio; для планів — warmNote/cardioNote (+ per-day тумблери). */
+(function(){
+  var st=document.createElement('style');
+  st.textContent=
+   '.hdr-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}'
+  +'.hdr-nav button{background:#23282e;border:1px solid #333a41;color:#e9ebed;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer}'
+  +'.hdr-nav button.on{background:var(--acc);border-color:var(--acc);color:#fff}'
+  +'.stepcard{margin:10px 0}'
+  +'.stepcard>details{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}'
+  +'.stepcard>details>summary{list-style:none;cursor:pointer;padding:12px 14px;font-weight:800;font-size:14px;color:var(--ink);display:flex;align-items:center;gap:8px}'
+  +'.stepcard>details>summary::-webkit-details-marker{display:none}'
+  +'.stepcard>details>summary::after{content:"▾";margin-left:auto;color:var(--ink2);font-weight:700}'
+  +'.stepcard>details[open]>summary::after{content:"▴"}'
+  +'.stepcard .opt{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink2);background:var(--sand,#f0ece6);border:1px solid var(--line);border-radius:999px;padding:2px 8px}'
+  +'.stepcard .steptxt{padding:2px 14px 12px;color:var(--ink2);font-size:13.5px;line-height:1.45}'
+  +'.stepcard>label.done{margin:8px 2px 2px}';
+  document.head.appendChild(st);
+  var inbox=document.querySelector('header.top .in');
+  if(inbox){
+    var txt=inbox.querySelector('div');
+    if(txt){ var chips=txt.querySelector('.chips'); if(chips)chips.remove();
+             var k=txt.querySelector('.kicker'); if(k)k.id='hdr-plan'; }
+    if(!document.getElementById('hdr-nav')){
+      var nav=document.createElement('div'); nav.className='hdr-nav'; nav.id='hdr-nav';
+      nav.innerHTML='<button data-hnav="progress">Прогрес</button><button data-hnav="library">Бібліотека</button><button data-hnav="plans">Плани</button>';
+      inbox.appendChild(nav);
+      [].slice.call(nav.querySelectorAll('[data-hnav]')).forEach(function(b){b.onclick=function(){render(b.getAttribute('data-hnav'));};});
+    }
+  }
+})();
+function ensureHeader(){
+  var kf=document.getElementById('hdr-plan');
+  if(kf){var p=activePlan();
+    kf.textContent=!s.planChosen?'Обери план тренувань':(p?p.name:'Рекомендований · Старт у залі');}
+  var nav=document.getElementById('hdr-nav');
+  if(nav)[].slice.call(nav.querySelectorAll('[data-hnav]')).forEach(function(b){b.classList.toggle('on',cur===b.getAttribute('data-hnav'));});
+}
+/* стрічка вкладок = лише дні активного плану; гейт до вибору */
+buildTabs=function(){
+  var nav=document.getElementById('tabs'); if(!nav)return;
+  var h='';
+  if(s.planChosen){
+    var p=activePlan();
+    if(!p){ h+=tabBtn('a','День A')+tabBtn('b','День B'); }
+    else { p.days.forEach(function(d,i){ h+=tabBtn('d'+i,d.name||('День '+(i+1))); }); }
+  }
+  nav.innerHTML=h; nav.style.display=h?'':'none';
+  [].slice.call(nav.querySelectorAll('.tab')).forEach(function(t){t.addEventListener('click',function(){render(t.dataset.tab);});});
+};
+ensureTabs=function(){
+  var p=activePlan();
+  var sig=(s.planChosen?'1':'0')+':'+(p?(p.id+':'+p.days.map(function(d){return d.name;}).join('|')):'builtin');
+  if(sig!==tabsSig){tabsSig=sig;buildTabs();}
+};
+/* --- крок розминки/кардіо --- */
+function _stepCardHTML(kind,inner,tab,label){
+  var done=!!(s.checks[tab]&&s.checks[tab]['__'+kind]);
+  return '<div class="stepcard" data-stepkind="'+kind+'" data-stepday="'+tab+'">'
+    +'<details><summary>'+label+' <span class="opt">необовʼязково</span></summary>'+inner+'</details>'
+    +'<label class="done"><input type="checkbox" class="ck-step"'+(done?' checked':'')+'>Зроблено</label></div>';
+}
+function _wireSteps(){
+  [].slice.call(panel.querySelectorAll('.stepcard .ck-step')).forEach(function(cb){
+    cb.addEventListener('change',function(){
+      var card=cb.closest('.stepcard'), kind=card.getAttribute('data-stepkind'), tab=card.getAttribute('data-stepday');
+      s.checks[tab]=s.checks[tab]||{}; s.checks[tab]['__'+kind]=cb.checked; touch();
+    });
+  });
+}
+function _injectSteps(tab){
+  if(!panel)return;
+  var isB=(tab==='a'||tab==='b'), m=/^d(\d+)$/.exec(tab);
+  if(!isB&&!m)return;
+  var showW=false,showC=false,warmInner='',cardioInner='';
+  if(isB){
+    showW=!!(DATA&&DATA.warm); showC=!!(DATA&&DATA.cardio);
+    warmInner=DATA.warm||''; cardioInner=DATA.cardio||'';
+  }else{
+    var p=activePlan(); if(!p)return; var day=p.days[+m[1]]; if(!day)return;
+    showW=!!day.warm; showC=!!day.cardio;
+    var wt=esc(p.warmNote||'')||'Легка суглобова розминка + 5–10 хв кардіо в спокійному темпі.';
+    var ct=esc(p.cardioNote||'')||'10–15 хв кардіо в комфортному темпі (велотренажер, доріжка, еліпс).';
+    warmInner='<div class="steptxt">'+wt+'</div>'; cardioInner='<div class="steptxt">'+ct+'</div>';
+  }
+  if(showW&&!panel.querySelector('.stepcard[data-stepkind="warm"]')){
+    var w=document.createElement('div'); w.innerHTML=_stepCardHTML('warm',warmInner,tab,'🔥 Розминка'); var wn=w.firstElementChild;
+    var lead=panel.querySelector('.lead');
+    if(lead&&lead.nextSibling)panel.insertBefore(wn,lead.nextSibling); else panel.insertBefore(wn,panel.firstChild);
+  }
+  if(showC&&!panel.querySelector('.stepcard[data-stepkind="cardio"]')){
+    var c=document.createElement('div'); c.innerHTML=_stepCardHTML('cardio',cardioInner,tab,'🚴 Кардіо'); var cn=c.firstElementChild;
+    var fin=panel.querySelector('.finish');
+    if(fin)panel.insertBefore(cn,fin); else panel.appendChild(cn);
+  }
+  _wireSteps();
+}
+/* --- перевизначення render: гейт + хедер + кроки --- */
+(function(){
+  var _render2=render;
+  render=function(tab){
+    if(!s.planChosen && !/^(progress|library|plans|survey|builder)$/.test(tab)) tab='plans';
+    if(tab==='warm'||tab==='cardio') tab = s.planChosen ? (activePlan()?'d0':'a') : 'plans';
+    var out=_render2(tab);
+    cur=tab; ensureHeader();
+    if(tab==='a'||tab==='b'){ try{_injectSteps(tab);}catch(e){} }
+    else if(/^d\d+$/.test(tab)){ if(typeof ensureLib==='function')ensureLib().then(function(){try{_injectSteps(tab);}catch(e){}}); }
+    return out;
+  };
+})();
+/* --- конструктор: поле cardioNote поряд із warmNote --- */
+(function(){
+  if(typeof renderBuilder!=='function')return;
+  var _rb=renderBuilder;
+  renderBuilder=function(){
+    var o=_rb.apply(this,arguments);
+    try{
+      var p=(s.plans||[]).find(function(x){return x.id===builderId;});
+      var warmIn=document.getElementById('pl-warm');
+      if(p&&warmIn&&!document.getElementById('pl-cardio')){
+        var lab=document.createElement('div'); lab.className='ph2'; lab.style.marginTop='12px'; lab.textContent='Кардіо (спільне для плану)';
+        var inp=document.createElement('input'); inp.className='authin'; inp.id='pl-cardio';
+        inp.placeholder='напр. 10–15 хв велотренажер, легкий темп'; inp.value=p.cardioNote||'';
+        warmIn.parentNode.appendChild(lab); warmIn.parentNode.appendChild(inp);
+        inp.oninput=function(){p.cardioNote=inp.value;touch();};
+      }
+    }catch(e){}
+    return o;
+  };
+})();
+/* --- перезапуск старту з новою логікою --- */
+tabsSig=''; ensureHeader(); ensureTabs();
+render(s.planChosen?startTab():'plans');
+
 </script>
 </body></html>
