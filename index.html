@@ -2138,5 +2138,105 @@ renderPlansTab=function(){
 _sessReady=false; tabsSig=''; ensureHeader(); ensureTabs();
 render('plans');
 
+/* === mod v26: розпізнавання вправи з фото прямо в Бібліотеці ===
+   Перевикористовує aiRecognize + пошук бібліотеки: фото → ШІ → назва
+   підставляється в пошук, показуються схожі вправи (з ⭐ та «➕ Додати в план»).
+   Потрібні: налаштована Edge Function recognize (AI_SETUP.md) і вхід у акаунт. */
+var _libRecoLast=null;
+function _libSaveOwn(out, photo){
+  var nm=(out&&(out.name_uk||out.name_en||out.name))||'Своя вправа';
+  var mus=out&&out.muscle;
+  var tpl={id:uid('own_'),name:nm,sets:3,reps:'10–12',
+    pm:(mus&&typeof MUS!=='undefined'&&MUS[mus])?[mus]:[],
+    eq:(out&&out.equipment)||'other',ins:(out&&out.note)?[out.note]:[],video:'',photoData:photo||null};
+  s.myEx=s.myEx||[]; s.myEx.push(tpl); touch();
+  libF.q=''; libF.fav=false; var qi=document.getElementById('lib-q'); if(qi)qi.value='';
+  libLimit=60; renderLibrary();
+  toast('Збережено у свої вправи: '+nm);
+}
+function _libRecoBtn(){
+  if(!document.getElementById('lib-q'))return;
+  if(document.getElementById('lib-reco'))return;
+  var q=document.getElementById('lib-q'); if(!q)return;
+  var wrap=document.createElement('div'); wrap.id='lib-reco-wrap'; wrap.style.margin='8px 0';
+  wrap.innerHTML='<div class="iorow" style="margin:0 0 6px">'
+    +'<button class="iobtn primary" id="lib-reco" style="flex:1">📷 Розпізнати з фото</button>'
+    +'<button class="iobtn" id="lib-reco-vid" style="flex:1">🎬 З відео у свої</button></div>'
+    +'<div id="lib-reco-save"></div>'
+    +'<input type="file" accept="image/*" id="lib-reco-file" style="display:none">';
+  q.parentNode.insertBefore(wrap,q.nextSibling);
+  var btn=document.getElementById('lib-reco'), file=document.getElementById('lib-reco-file');
+  var vbtn=document.getElementById('lib-reco-vid');
+  btn.onclick=function(){ file.value=''; file.click(); };
+  vbtn.onclick=function(){ if(typeof openVideoWizardLibrary==='function')openVideoWizardLibrary(); else toast('Майстер недоступний'); };
+  file.onchange=async function(){
+    var f=file.files&&file.files[0]; if(!f)return;
+    var sb0=document.getElementById('lib-reco-save'); if(sb0)sb0.innerHTML='';
+    var old=btn.textContent; btn.disabled=true; btn.textContent='Стискаю фото…';
+    try{
+      var data=await fileToDataURL(f,700);
+      btn.textContent='Розпізнаю…';
+      var out=await aiRecognize(data);
+      _libRecoLast={photo:data,out:out};
+      var nm=(out&&(out.name_en||out.name))||'', uk=(out&&(out.name_uk||out.name))||'';
+      var qi=document.getElementById('lib-q');
+      libF.q=nm||uk; if(qi)qi.value=libF.q; libLimit=60; renderLibResults();
+      var box=document.getElementById('lib-results');
+      if(box&&!box.querySelector('.libcard')&&nm){ libF.q=nm.split(/\s+/)[0]; if(qi)qi.value=libF.q; renderLibResults(); }
+      var box2=document.getElementById('lib-results'); var has=box2&&box2.querySelector('.libcard');
+      var sb=document.getElementById('lib-reco-save');
+      if(sb){ sb.innerHTML='<button class="iobtn" id="lib-save-own" style="width:100%">💾 Зберегти «'+esc(uk||nm||'вправу')+'» як свою вправу</button>';
+        var so=document.getElementById('lib-save-own'); if(so)so.onclick=function(){ _libSaveOwn(out,data); }; }
+      toast('Розпізнано: '+(uk||nm||'—')+(has?'':' · збігів немає — можеш зберегти як свою'));
+    }catch(e){
+      var m=String((e&&e.message)||e);
+      toast(m==='NOT_DEPLOYED'?'Розпізнавання не задеплоєно (див. AI_SETUP.md)':
+            m==='NOT_LOGGED'?'Спершу увійди в акаунт — розпізнавання лише після входу':
+            m==='NO_CONFIG'?'Supabase не налаштовано (config.js)':
+            'Не вдалося розпізнати ('+m+')');
+    }finally{ btn.disabled=false; btn.textContent=old; }
+  };
+}
+(function(){ if(typeof renderLibrary!=='function')return;
+  var _rl=renderLibrary; renderLibrary=function(){ var o=_rl.apply(this,arguments); try{_libRecoBtn();}catch(e){} return o; };
+})();
+try{_libRecoBtn();}catch(e){}
+/* === mod v27: майстер відео в бібліотечному режимі (фінал = свої вправи) === */
+function openVideoWizardLibrary(){
+  if(typeof openVideoWizard!=='function'){toast('Майстер відео недоступний');return;}
+  openVideoWizard(null,null);
+  if(vidState)vidState.libMode=true;
+  var ov=document.getElementById('vidov'); if(ov)ov.classList.add('open');
+  if(typeof renderVideoWizard==='function')renderVideoWizard();
+}
+(function(){
+  if(typeof addRecognized!=='function')return;
+  var _ar=addRecognized;
+  addRecognized=function(r){
+    if(vidState&&vidState.libMode){
+      if(r&&r.match&&r.match.type==='lib'){ toast('Вже є в базі: '+((r.match.entry&&r.match.entry.name)||'')); }
+      else{
+        var imgs=(r&&r.match&&r.match.frameImgs)||[];
+        var tpl={id:uid('own_'),name:(r&&(r.name_uk||r.name_en))||'Вправа з відео',sets:3,reps:'10–12',
+          pm:(r&&r.muscle)?[r.muscle]:[],eq:(r&&r.equipment)||'other',ins:(r&&r.note)?[r.note]:[],
+          video:vidState.videoUrl||'',photoData:imgs[0]||null,photo2Data:imgs[1]||null};
+        s.myEx=s.myEx||[]; s.myEx.push(tpl); touch(); toast('Збережено у свої: '+tpl.name);
+      }
+      if(cur==='library'){try{renderLibResults();}catch(e){}}
+      return;
+    }
+    return _ar(r);
+  };
+})();
+(function(){
+  if(typeof renderVideoWizard!=='function')return;
+  var _rvw=renderVideoWizard;
+  renderVideoWizard=function(){ var o=_rvw.apply(this,arguments);
+    try{ if(vidState&&vidState.libMode){ var ov=document.getElementById('vidov');
+      if(ov){ [].slice.call(ov.querySelectorAll('.vw-add')).forEach(function(b){b.textContent='💾 У свої';});
+        var hb=ov.querySelector('.pickhead b'); if(hb)hb.textContent='🎬 Розпізнати у свої вправи'; } }
+    }catch(e){} return o; };
+})();
+
 </script>
 </body></html>
