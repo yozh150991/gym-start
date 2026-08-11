@@ -1993,10 +1993,13 @@ try{injectLibHints();}catch(e){}
     }
   }
 })();
+/* сесійний прапорець: план вважається обраним ЛИШЕ в межах цього запуску.
+   Не зберігається — тож при кожному новому відкритті знову екран «Плани». */
+var _sessReady=false;
 function ensureHeader(){
   var kf=document.getElementById('hdr-plan');
   if(kf){var p=activePlan();
-    kf.textContent=!s.planChosen?'Обери план тренувань':(p?p.name:'Рекомендований · Старт у залі');}
+    kf.textContent=!_sessReady?'Обери план тренувань':(p?p.name:'Рекомендований · Старт у залі');}
   var nav=document.getElementById('hdr-nav');
   if(nav)[].slice.call(nav.querySelectorAll('[data-hnav]')).forEach(function(b){b.classList.toggle('on',cur===b.getAttribute('data-hnav'));});
 }
@@ -2004,7 +2007,7 @@ function ensureHeader(){
 buildTabs=function(){
   var nav=document.getElementById('tabs'); if(!nav)return;
   var h='';
-  if(s.planChosen){
+  if(_sessReady){
     var p=activePlan();
     if(!p){ h+=tabBtn('a','День A')+tabBtn('b','День B'); }
     else { p.days.forEach(function(d,i){ h+=tabBtn('d'+i,d.name||('День '+(i+1))); }); }
@@ -2014,7 +2017,7 @@ buildTabs=function(){
 };
 ensureTabs=function(){
   var p=activePlan();
-  var sig=(s.planChosen?'1':'0')+':'+(p?(p.id+':'+p.days.map(function(d){return d.name;}).join('|')):'builtin');
+  var sig=(_sessReady?'1':'0')+':'+(p?(p.id+':'+p.days.map(function(d){return d.name;}).join('|')):'builtin');
   if(sig!==tabsSig){tabsSig=sig;buildTabs();}
 };
 /* --- крок розминки/кардіо --- */
@@ -2063,8 +2066,8 @@ function _injectSteps(tab){
 (function(){
   var _render2=render;
   render=function(tab){
-    if(!s.planChosen && !/^(progress|library|plans|survey|builder)$/.test(tab)) tab='plans';
-    if(tab==='warm'||tab==='cardio') tab = s.planChosen ? (activePlan()?'d0':'a') : 'plans';
+    if(!_sessReady && !/^(progress|library|plans|survey|builder)$/.test(tab)) tab='plans';
+    if(tab==='warm'||tab==='cardio') tab = _sessReady ? (activePlan()?'d0':'a') : 'plans';
     var out=_render2(tab);
     cur=tab; ensureHeader();
     if(tab==='a'||tab==='b'){ try{_injectSteps(tab);}catch(e){} }
@@ -2088,13 +2091,52 @@ function _injectSteps(tab){
         warmIn.parentNode.appendChild(lab); warmIn.parentNode.appendChild(inp);
         inp.oninput=function(){p.cardioNote=inp.value;touch();};
       }
+      var done=document.getElementById('pl-done');
+      if(done){var _od=done.onclick; done.onclick=function(e){_sessReady=true; if(_od)return _od.call(this,e);};}
     }catch(e){}
     return o;
   };
 })();
-/* --- перезапуск старту з новою логікою --- */
-tabsSig=''; ensureHeader(); ensureTabs();
-render(s.planChosen?startTab():'plans');
+/* --- «Плани»: кожен план (включно з активним) має «▶ Тренуватись», що вмикає
+   сесію на це заняття. Активний план лишається запамʼятованим у s.activePlan,
+   але в тренування треба явно ввійти щозапуску. --- */
+renderPlansTab=function(){
+  var act=s.activePlan;
+  var h='<p class="lead">Обери план на це заняття.</p>';
+  h+=planCardBox('Рекомендований — Старт у залі','2 дні · верх тіла, спина, кор · з аналогами',act==='builtin',
+     '<button class="iobtn primary" data-enter="builtin">▶ Тренуватись</button>');
+  (s.plans||[]).forEach(function(p){
+    var n=p.days.reduce(function(a,d){return a+d.items.length;},0);
+    h+=planCardBox(p.name,p.days.length+' дн. · '+n+' вправ · '+(p.type==='generated'?'підібраний':'власний'),act===p.id,
+       '<button class="iobtn primary" data-enter="'+p.id+'">▶ Тренуватись</button>'
+      +'<button class="iobtn" data-edit="'+p.id+'">✎ Редагувати</button>'
+      +'<button class="iobtn" data-off="'+p.id+'">⬇ Фото офлайн</button>'
+      +'<button class="iobtn danger" data-del="'+p.id+'">🗑</button>');
+  });
+  h+='<div class="pcard"><div class="ph2">Створити новий</div><div class="iorow">'
+    +'<button class="iobtn primary" id="go-survey">🎯 Підібрати опитуванням</button>'
+    +'<button class="iobtn" id="go-new">➕ Скласти самому</button></div></div>';
+  panel.innerHTML=h;
+  function enter(id){ s.activePlan=id; s.planChosen=true; _sessReady=true; touch(); tabsSig=''; ensureHeader(); render(startTab()); toast('Тренування почато'); }
+  [].slice.call(panel.querySelectorAll('[data-enter]')).forEach(function(b){b.onclick=function(){enter(b.getAttribute('data-enter'));};});
+  [].slice.call(panel.querySelectorAll('[data-edit]')).forEach(function(b){b.onclick=function(){builderId=b.getAttribute('data-edit');render('builder');};});
+  [].slice.call(panel.querySelectorAll('[data-del]')).forEach(function(b){b.onclick=function(){
+    if(!confirm('Видалити цей план? Історія тренувань залишиться.'))return;
+    var id=b.getAttribute('data-del'); s.plans=s.plans.filter(function(x){return x.id!==id;});
+    if(s.activePlan===id)s.activePlan='builtin'; touch();tabsSig='';render('plans');toast('План видалено');};});
+  [].slice.call(panel.querySelectorAll('[data-off]')).forEach(function(b){b.onclick=function(){
+    var p=(s.plans||[]).find(function(x){return x.id===b.getAttribute('data-off');});if(!p)return;
+    b.disabled=true;b.textContent='Завантажую…';
+    cachePhotos(p,function(d,t){b.textContent='Фото '+d+'/'+t;}).then(function(){b.textContent='✓ Офлайн';toast('Фото збережено для офлайн');});};});
+  var gs=document.getElementById('go-survey');if(gs)gs.onclick=function(){render('survey');};
+  var gn=document.getElementById('go-new');if(gn)gn.onclick=function(){
+    var p={id:uid('p'),name:'Мій план',type:'custom',created:today(),warmNote:'',cardioNote:'',days:[{name:'День 1',place:'gym',warm:true,cardio:true,items:[]}]};
+    s.plans.push(p);touch();builderId=p.id;render('builder');};
+  window.scrollTo({top:0});
+};
+/* --- старт: завжди екран «Плани» (план не активний до явного вибору в сесії) --- */
+_sessReady=false; tabsSig=''; ensureHeader(); ensureTabs();
+render('plans');
 
 </script>
 </body></html>
