@@ -2162,9 +2162,12 @@ function _libRecoBtn(){
   wrap.innerHTML='<div class="iorow" style="margin:0 0 6px">'
     +'<button class="iobtn primary" id="lib-reco" style="flex:1">📷 Розпізнати з фото</button>'
     +'<button class="iobtn" id="lib-reco-vid" style="flex:1">🎬 З відео у свої</button></div>'
+    +'<button class="iobtn" id="lib-online" style="width:100%;margin:0 0 6px">🌐 Онлайн-пошук (exerciseapi.dev)</button>'
     +'<div id="lib-reco-save"></div>'
     +'<input type="file" accept="image/*" id="lib-reco-file" style="display:none">';
   q.parentNode.insertBefore(wrap,q.nextSibling);
+  var _ob=document.getElementById('lib-online');
+  if(_ob)_ob.onclick=function(){ if(typeof openOnlineSearch==='function')openOnlineSearch(); };
   var btn=document.getElementById('lib-reco'), file=document.getElementById('lib-reco-file');
   var vbtn=document.getElementById('lib-reco-vid');
   btn.onclick=function(){ file.value=''; file.click(); };
@@ -2185,9 +2188,11 @@ function _libRecoBtn(){
       if(box&&!box.querySelector('.libcard')&&nm){ libF.q=nm.split(/\s+/)[0]; if(qi)qi.value=libF.q; renderLibResults(); }
       var box2=document.getElementById('lib-results'); var has=box2&&box2.querySelector('.libcard');
       var sb=document.getElementById('lib-reco-save');
-      if(sb){ sb.innerHTML='<button class="iobtn" id="lib-save-own" style="width:100%">💾 Зберегти «'+esc(uk||nm||'вправу')+'» як свою вправу</button>';
-        var so=document.getElementById('lib-save-own'); if(so)so.onclick=function(){ _libSaveOwn(out,data); }; }
-      toast('Розпізнано: '+(uk||nm||'—')+(has?'':' · збігів немає — можеш зберегти як свою'));
+      if(sb){ sb.innerHTML='<button class="iobtn" id="lib-save-own" style="width:100%;margin-bottom:6px">💾 Зберегти «'+esc(uk||nm||'вправу')+'» як свою вправу</button>'
+          +'<button class="iobtn primary" id="lib-go-online" style="width:100%">🌐 Шукати «'+esc(uk||nm||'')+'» онлайн (з порадами)</button>';
+        var so=document.getElementById('lib-save-own'); if(so)so.onclick=function(){ _libSaveOwn(out,data); };
+        var go=document.getElementById('lib-go-online'); if(go)go.onclick=function(){ if(typeof openOnlineSearch==='function')openOnlineSearch(nm||uk); }; }
+      toast('Розпізнано: '+(uk||nm||'—')+(has?'':' · збігів немає — спробуй «Шукати онлайн» або збережи як свою'));
     }catch(e){
       var m=String((e&&e.message)||e);
       toast(m==='NOT_DEPLOYED'?'Розпізнавання не задеплоєно (див. AI_SETUP.md)':
@@ -2237,6 +2242,167 @@ function openVideoWizardLibrary(){
         var hb=ov.querySelector('.pickhead b'); if(hb)hb.textContent='🎬 Розпізнати у свої вправи'; } }
     }catch(e){} return o; };
 })();
+
+/* === mod v28: онлайн-пошук exerciseapi.dev (через проксі-функцію exdb) ===
+   Опційне доповнення до локальної бібліотеки. Дані тягнуться в реальному часі
+   через Edge Function exdb (яка тримає ключ), кешуються на пристрої (24 год,
+   як вимагають умови exerciseapi.dev — per-device, без перероздавання).
+   Кнопка «Зберегти до себе» кладе вправу в s.myEx → доступна в планах офлайн. */
+(function(){ var st=document.createElement('style'); st.textContent=
+   '.exchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}'
+  +'.exchip{background:#fff;border:1px solid var(--line);color:var(--ink2);border-radius:999px;padding:6px 11px;font-size:12.5px;font-weight:700;cursor:pointer}'
+  +'.exchip.on{background:var(--acc);border-color:var(--acc);color:#fff}';
+  document.head.appendChild(st); })();
+var _online={q:'',cat:'',mus:'',eq:'',busy:false,results:null,msg:''}, _exTimer=null;
+/* маленький офлайн-словник поширених термінів: український запит → англійський */
+var _UAEN_PHRASE=[
+  ['жим штанги лежачи','barbell bench press'],['жим гантелей лежачи','dumbbell bench press'],
+  ['жим лежачи','bench press'],['жим над головою','overhead press'],['армійський жим','overhead press'],
+  ['французький жим','triceps extension'],['жим ногами','leg press'],
+  ['тяга верхнього блоку','lat pulldown'],['тяга горизонтального блоку','seated row'],
+  ['тяга штанги','barbell row'],['станова тяга','deadlift'],['тяга гантелі','dumbbell row'],
+  ['підйом на біцепс','biceps curl'],['згинання на біцепс','biceps curl'],
+  ['розведення гантелей','dumbbell fly'],['підйом на носки','calf raise'],['махи гирею','kettlebell swing']
+];
+var _UAEN_WORD={
+  'жим':'press','тяга':'row','присідання':'squat','присід':'squat','випади':'lunge','випад':'lunge',
+  'підтягування':'pull up','віджимання':'push up','планка':'plank','скручування':'crunch','розтяжка':'stretch',
+  'гіперекстензія':'hyperextension','згинання':'curl','розгинання':'extension','махи':'raise',
+  'груди':'chest','спина':'back','плечі':'shoulders','плече':'shoulders','біцепс':'biceps','трицепс':'triceps',
+  'ноги':'legs','квадрицепс':'quadriceps','квадрицепси':'quadriceps','сідниці':'glutes','прес':'abs',
+  'ікри':'calves','передпліччя':'forearms','трапеції':'traps','кор':'core',
+  'штанга':'barbell','штанги':'barbell','гантелі':'dumbbell','гантель':'dumbbell','гантелей':'dumbbell',
+  'блок':'cable','тренажер':'machine','гиря':'kettlebell','гирею':'kettlebell','гумка':'band','турнік':'pull up'
+};
+function _uaToEn(text){
+  var t=' '+String(text||'').toLowerCase()+' ';
+  if(!/[\u0400-\u04FF]/.test(t))return String(text||'').trim(); // немає кирилиці — лишаємо як є
+  _UAEN_PHRASE.forEach(function(p){ t=t.split(p[0]).join(p[1]); });
+  t=t.replace(/[\u0400-\u04FF']+/g,function(w){ return _UAEN_WORD[w]||w; });
+  // прибираємо залишки кирилиці (невідомі слова), стискаємо пробіли
+  t=t.replace(/[\u0400-\u04FF']+/g,' ').replace(/\s+/g,' ').trim();
+  return t;
+}
+/* чіпи-фільтри — щоб шукати не знаючи назви */
+var _EX_MUS=[['chest','Груди'],['back','Спина'],['shoulders','Плечі'],['biceps','Біцепс'],['triceps','Трицепс'],['quadriceps','Ноги'],['glutes','Сідниці'],['abs','Прес'],['calves','Ікри']];
+var _EX_EQ=[['barbell','Штанга'],['dumbbell','Гантелі'],['cable','Блок'],['machine','Тренажер'],['kettlebell','Гиря'],['body only','Вага тіла'],['bands','Гумка']];
+var _EX_CAT=[['strength','Сила'],['stretching','Розтяжка'],['yoga','Йога'],['calisthenics','КаліСтеніка'],['mobility','Мобільність'],['plyometrics','Плайометрика'],['pilates','Пілатес']];
+function _exCacheGet(k){ try{var r=localStorage.getItem('EXDBC:'+k);if(!r)return null;var o=JSON.parse(r);if(!o||(Date.now()-o.t)>864e5)return null;return o.d;}catch(e){return null;} }
+function _exCacheSet(k,d){ try{localStorage.setItem('EXDBC:'+k,JSON.stringify({t:Date.now(),d:d}));}catch(e){} }
+async function exdbSearch(q,f){
+  f=f||{};
+  var ck=(q||'').toLowerCase()+'|'+(f.category||'')+'|'+(f.muscle||'')+'|'+(f.equipment||'');
+  var c=_exCacheGet(ck); if(c)return c;
+  var base=(window.SUPABASE_URL||'').replace(/\/+$/,'');
+  if(!base||/ВСТАВ/.test(base))throw new Error('NO_CONFIG');
+  if(!sb)throw new Error('NOT_LOGGED');
+  var token=window.SUPABASE_ANON_KEY||'';
+  var sess=await sb.auth.getSession();
+  if(sess&&sess.data&&sess.data.session&&sess.data.session.access_token)token=sess.data.session.access_token; else throw new Error('NOT_LOGGED');
+  var qs='limit=20';
+  if(q)qs+='&q='+encodeURIComponent(q);
+  if(f.category)qs+='&category='+encodeURIComponent(f.category);
+  if(f.muscle)qs+='&muscle='+encodeURIComponent(f.muscle);
+  if(f.equipment)qs+='&equipment='+encodeURIComponent(f.equipment);
+  var r=await fetch(base+'/functions/v1/exdb?'+qs,{headers:{'Authorization':'Bearer '+token,'apikey':window.SUPABASE_ANON_KEY||''}});
+  if(r.status===404)throw new Error('NOT_DEPLOYED');
+  if(r.status===429)throw new Error('RATE');
+  if(!r.ok)throw new Error('HTTP_'+r.status);
+  var j=await r.json(); var data=(j&&j.data)||[]; _exCacheSet(ck,data); return data;
+}
+function _exChipRow(list, sel, kind){
+  return '<div class="exchips" data-kind="'+kind+'">'+list.map(function(p){
+    return '<button class="exchip'+(sel===p[0]?' on':'')+'" data-kind="'+kind+'" data-val="'+p[0]+'">'+esc(p[1])+'</button>';
+  }).join('')+'</div>';
+}
+function _exWireChips(){
+  [].slice.call(document.querySelectorAll('.exchip')).forEach(function(b){
+    b.onclick=function(){
+      var kind=b.getAttribute('data-kind'), val=b.getAttribute('data-val');
+      if(kind==='mus')_online.mus=(_online.mus===val?'':val);
+      if(kind==='eq')_online.eq=(_online.eq===val?'':val);
+      if(kind==='cat')_online.cat=(_online.cat===val?'':val);
+      // перемалювати активність чіпів у цьому ряду
+      var row=b.parentNode; [].slice.call(row.querySelectorAll('.exchip')).forEach(function(x){
+        var on=(kind==='mus'&&_online.mus===x.getAttribute('data-val'))||(kind==='eq'&&_online.eq===x.getAttribute('data-val'))||(kind==='cat'&&_online.cat===x.getAttribute('data-val'));
+        x.classList.toggle('on',on);
+      });
+      _exRun();
+    };
+  });
+}
+function openOnlineSearch(prefill){
+  var box=document.getElementById('lib-results'); if(!box)return;
+  if(prefill!=null){ _online.q=prefill; _online.results=null; _online.msg=''; }
+  box.innerHTML='<div class="pcard" style="margin-bottom:10px">'
+    +'<div class="iorow" style="margin:0 0 8px"><button class="iobtn" id="ex-back" style="flex:1">← Локальна бібліотека</button></div>'
+    +'<div class="ph2">🌐 Онлайн-пошук · exerciseapi.dev</div>'
+    +'<input id="ex-q" class="authin" placeholder="назва (українською чи англ.) — або обери фільтри нижче">'
+    +'<div style="font-size:12px;color:var(--ink2);margin:6px 0 4px">Не знаєш назви? Просто тицьни частину тіла й/або обладнання:</div>'
+    +'<div style="font-size:11px;color:var(--ink2);margin:6px 0 2px">Частина тіла</div>'+_exChipRow(_EX_MUS,_online.mus,'mus')
+    +'<div style="font-size:11px;color:var(--ink2);margin:6px 0 2px">Обладнання</div>'+_exChipRow(_EX_EQ,_online.eq,'eq')
+    +'<div style="font-size:11px;color:var(--ink2);margin:6px 0 2px">Категорія</div>'+_exChipRow(_EX_CAT,_online.cat,'cat')
+    +'<div style="font-size:11px;color:var(--ink2);margin-top:8px">Дані з мережі, кешуються 24 год. Ліміт — 100 запитів/день на весь додаток. Потрібен вхід.</div></div>'
+    +'<div id="ex-results"><p class="lead">Введи запит або обери фільтр — покажу вправи з exerciseapi.dev.</p></div>';
+  var bk=document.getElementById('ex-back'); if(bk)bk.onclick=function(){ _online.mus=_online.eq=_online.cat=''; if(typeof renderLibrary==='function')renderLibrary(); };
+  var qi=document.getElementById('ex-q'); if(qi){ qi.value=_online.q||''; qi.oninput=function(){ _online.q=qi.value; clearTimeout(_exTimer); _exTimer=setTimeout(_exRun,350); }; }
+  _exWireChips();
+  if(prefill!=null||_online.q||_online.mus||_online.eq||_online.cat)_exRun();
+}
+function _exResultsRender(){
+  var box=document.getElementById('ex-results'); if(!box)return;
+  if(_online.busy){ box.innerHTML='<p class="lead">Шукаю…</p>'; return; }
+  if(_online.msg){ box.innerHTML='<p class="lead">'+esc(_online.msg)+'</p>'; return; }
+  var r=_online.results;
+  if(!r){ box.innerHTML='<p class="lead">Введи запит — покажу вправи з exerciseapi.dev.</p>'; return; }
+  if(!r.length){ box.innerHTML='<p class="lead">Нічого не знайдено. Спробуй інше слово.</p>'; return; }
+  box.innerHTML=r.map(function(x,i){return _exCard(x,i);}).join('');
+  [].slice.call(box.querySelectorAll('[data-exsave]')).forEach(function(b){b.onclick=function(){_exSaveOwn(+b.getAttribute('data-exsave'),b);};});
+}
+async function _exRun(){
+  var raw=(_online.q||'').trim();
+  var q=_uaToEn(raw);
+  var f={category:_online.cat,muscle:_online.mus,equipment:_online.eq};
+  var hasFilter=!!(f.category||f.muscle||f.equipment);
+  if(q.length<2 && !hasFilter){ _online.results=null; _online.msg=''; _exResultsRender(); return; }
+  _online.busy=true; _online.msg=''; _exResultsRender();
+  try{ var data=await exdbSearch(q, f); _online.results=data; _online.busy=false; _exResultsRender(); }
+  catch(e){ _online.busy=false; _online.results=null; var m=String((e&&e.message)||e);
+    _online.msg = m==='NOT_LOGGED'?'Спершу увійди в акаунт — онлайн-пошук лише після входу'
+      : m==='NOT_DEPLOYED'?'Функцію exdb ще не задеплоєно (див. EXDB_SETUP.md)'
+      : m==='NO_CONFIG'?'Supabase не налаштовано (config.js)'
+      : m==='RATE'?'Ліміт запитів вичерпано — спробуй пізніше'
+      : 'Помилка мережі ('+m+')';
+    _exResultsRender();
+  }
+}
+function _exCard(x,i){
+  var mus=(x.primaryMuscles||[]).slice(0,3).join(', ');
+  var meta=[x.category,x.level,x.equipment].filter(Boolean).join(' · ');
+  var det='';
+  if(x.overview)det+='<div class="steptxt">'+esc(x.overview)+'</div>';
+  if(x.instructions&&x.instructions.length)det+='<b>Як робити</b><ol>'+x.instructions.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>';
+  if(x.exerciseTips&&x.exerciseTips.length)det+='<div class="uahint"><b>Поради</b><ul>'+x.exerciseTips.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ul></div>';
+  if(x.commonMistakes&&x.commonMistakes.length)det+='<div class="uahint" style="background:#fdeeee;border-color:#f0caca"><b>Типові помилки</b><ul>'+x.commonMistakes.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ul></div>';
+  if(x.safetyInfo)det+='<div class="uahint"><b>Безпека</b><div class="steptxt">'+esc(x.safetyInfo)+'</div></div>';
+  return '<div class="pcard" style="margin-bottom:10px"><div class="ph2">'+esc(x.name)+'</div>'
+    +'<div style="font-size:12.5px;color:var(--ink2);margin:2px 0 6px">'+esc(meta)+(mus?(' · '+esc(mus)):'')+'</div>'
+    +(det?('<details><summary style="cursor:pointer;font-weight:700;color:var(--acc)">Деталі</summary>'+det+'</details>'):'')
+    +'<button class="iobtn" data-exsave="'+i+'" style="width:100%;margin-top:8px">💾 Зберегти до себе</button></div>';
+}
+function _exSaveOwn(i,btn){
+  var x=_online.results&&_online.results[i]; if(!x)return;
+  var ins=(x.instructions||[]).slice();
+  if(x.exerciseTips&&x.exerciseTips.length)ins.push('Поради: '+x.exerciseTips.join(' '));
+  if(x.commonMistakes&&x.commonMistakes.length)ins.push('Типові помилки: '+x.commonMistakes.join(' '));
+  if(x.safetyInfo)ins.push('Безпека: '+x.safetyInfo);
+  var tpl={id:uid('own_'),name:x.name||'Вправа',sets:3,reps:'10–12',
+    pm:(x.primaryMuscles&&x.primaryMuscles.length)?[x.primaryMuscles[0]]:[],
+    eq:x.equipment||'other',ins:ins,video:'',photoData:null};
+  s.myEx=s.myEx||[]; s.myEx.push(tpl); touch();
+  if(btn){btn.disabled=true;btn.textContent='✓ У бібліотеці';}
+  toast('Збережено до себе: '+tpl.name+' — тепер доступна в бібліотеці й планах');
+}
 
 </script>
 </body></html>
