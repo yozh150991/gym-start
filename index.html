@@ -2404,5 +2404,163 @@ function _exSaveOwn(i,btn){
   toast('Збережено до себе: '+tpl.name+' — тепер доступна в бібліотеці й планах');
 }
 
+/* === mod v30: розгортка опису вправи в пікері «Додати вправу» ===
+   Раніше тап по рядку одразу додавав вправу. Тепер: тап по рядку показує
+   великий кадр + інструкції + підказки; кнопка ＋ додає (як і раніше). */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.pickrow img{width:64px!important;height:64px!important;flex:0 0 64px!important}'
+  +'.pkhint{font-size:12px;color:var(--ink2);margin:2px 2px 8px}'
+  +'.pkdet-wrap{margin:-1px 2px 7px}'
+  +'.pkdet{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}'
+  +'.pkdet-img{width:100%;max-height:300px;object-fit:contain;border-radius:10px;background:var(--sand,#faf7f2);display:block;margin-bottom:10px}'
+  +'.pkdet b{font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink2)}'
+  +'.pkdet ol{margin:6px 0 10px;padding-left:20px}'
+  +'.pkdet ol li{margin:4px 0;font-size:13.5px;line-height:1.4}'
+  +'.pkdet-empty{color:var(--ink2);font-size:13px;margin:6px 0 10px}';
+  document.head.appendChild(st); })();
+function _pkToggleDetail(row){
+  var sib=row.nextElementSibling;
+  if(sib&&sib.classList&&sib.classList.contains('pkdet-wrap')){ sib.remove(); return; }
+  var open=document.querySelector('.pkdet-wrap'); if(open)open.remove();
+  var id=row.getAttribute('data-id');
+  var x=(typeof LIBALL==='function')?LIBALL().find(function(e){return e.id===id;}):null;
+  if(!x)return;
+  var img=(typeof libImg==='function')?libImg(x):'';
+  var insH=(x.ins&&x.ins.length)?('<b>Як робити</b><ol>'+x.ins.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>'):'<p class="pkdet-empty">Опис відсутній у базі.</p>';
+  var hintH='';
+  try{ if(typeof exHint==='function'){ var h=exHint(x); if(h&&h.length)hintH='<div class="uahint"><b>На що звернути увагу</b><ul>'+h.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ul></div>'; } }catch(e){}
+  var w=document.createElement('div'); w.className='pkdet-wrap';
+  w.innerHTML='<div class="pkdet">'+(img?'<img class="pkdet-img" src="'+img+'" alt="">':'')+insH+hintH+'<button class="iobtn primary pkdet-add">➕ Додати в план</button></div>';
+  row.parentNode.insertBefore(w,row.nextSibling);
+  var ab=w.querySelector('.pkdet-add'); if(ab)ab.onclick=function(){ var p=row.querySelector('.pkadd'); if(p)p.click(); };
+}
+document.addEventListener('click',function(e){
+  var row=e.target.closest?e.target.closest('.pickrow'):null; if(!row)return;
+  if(e.target.closest('.pkadd'))return;      /* ＋ → лишаємо додавання (спливає до row.onclick) */
+  if(e.target.closest('.pkdet-wrap'))return; /* кліки всередині розгортки не чіпаємо */
+  e.stopPropagation(); e.preventDefault();
+  _pkToggleDetail(row);
+},true);
+(function(){ if(typeof renderPicker!=='function')return;
+  var _rp=renderPicker;
+  renderPicker=function(){ var o=_rp.apply(this,arguments);
+    try{ var list=document.querySelector('.picklist');
+      if(list){ var prev=list.previousElementSibling;
+        if(!(prev&&prev.classList&&prev.classList.contains('pkhint'))){
+          var hint=document.createElement('div'); hint.className='pkhint';
+          hint.textContent='💡 Натисни на вправу — великий кадр і опис. ＋ — додати в план.';
+          list.parentNode.insertBefore(hint,list);
+        }
+      }
+    }catch(e){} return o; };
+})();
+
+/* === mod v31: підходи (сети) для кожної вправи ===
+   Замість однієї ваги/повторень — список підходів (1..N), кожен зі своєю вагою×повторами.
+   Дані в s.sets[key]=[{w,r}]. Для сумісності з графіком (v20) та експортом у s.weights[key]/
+   s.reps[key] дзеркалиться найважчий підхід. finishDay додатково пише підходи в історію.
+   Галочка «зроблено» на вправу лишається як була (лічильник «Завершити»). */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.setsbox{margin-top:8px;flex-basis:100%;width:100%}'
+  +'.setshead{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2);font-weight:800;margin-bottom:5px}'
+  +'.setrow{display:flex;align-items:center;gap:6px;margin:5px 0}'
+  +'.setn{flex:0 0 22px;height:24px;line-height:24px;text-align:center;background:var(--sand,#f0ece6);border-radius:6px;font-size:12px;font-weight:800;color:var(--ink2)}'
+  +'.setrow input{font-size:14px;font-weight:700;border:1px solid var(--line);border-radius:8px;padding:6px 7px;text-align:center}'
+  +'.setrow .set-w{width:66px}.setrow .set-r{width:58px}'
+  +'.setu{font-size:12px;color:var(--ink2)}.setx2{color:var(--ink2)}'
+  +'.set-del{margin-left:auto;background:none;border:none;color:var(--ink2);font-size:15px;cursor:pointer;padding:4px 6px;line-height:1}'
+  +'.setrow .set-ck{flex:0 0 18px;width:18px;height:18px;accent-color:var(--acc);margin:0}'
+  +'.setrow.setdone{opacity:.6}'
+  +'.setrow.setdone .set-w,.setrow.setdone .set-r{text-decoration:line-through}'
+  +'.set-add{margin-top:4px;background:#fff;border:1px dashed var(--line);color:var(--ink2);border-radius:9px;padding:7px 10px;font-size:12.5px;font-weight:700;cursor:pointer;width:100%}';
+  document.head.appendChild(st); })();
+function _setNum(v){var n=parseFloat(String(v==null?'':v).replace(',','.'));return isNaN(n)?null:n;}
+function _syncRepFromSets(key){
+  var arr=(s.sets&&s.sets[key])||[]; var best=null;
+  arr.forEach(function(st){ var n=_setNum(st.w); if(n!=null&&(best==null||n>best.n))best={n:n,st:st}; });
+  if(best){ s.weights[key]=best.st.w; s.reps[key]=best.st.r||''; }
+  else { s.weights[key]=(arr[0]&&arr[0].w)||''; s.reps[key]=(arr[0]&&arr[0].r)||''; }
+}
+function _setRowHTML(st,i){
+  return '<div class="setrow'+(st.done?' setdone':'')+'" data-i="'+i+'">'
+    +'<input type="checkbox" class="set-ck"'+(st.done?' checked':'')+'>'
+    +'<span class="setn">'+(i+1)+'</span>'
+    +'<input class="set-w" type="number" inputmode="decimal" min="0" step="1" placeholder="вага" value="'+esc(st.w||'')+'"><span class="setu">кг</span>'
+    +'<span class="setx2">×</span>'
+    +'<input class="set-r" type="number" inputmode="numeric" min="0" step="1" placeholder="повт." value="'+esc(st.r||'')+'">'
+    +'<button class="set-del" type="button" title="прибрати підхід">✕</button></div>';
+}
+function _renderSetRows(box,key){
+  var arr=(s.sets&&s.sets[key])||[];
+  box.querySelector('.setrows').innerHTML=arr.map(function(st,i){return _setRowHTML(st,i);}).join('');
+  [].slice.call(box.querySelectorAll('.setrow')).forEach(function(rw){
+    var i=+rw.getAttribute('data-i');
+    var w=rw.querySelector('.set-w'), r=rw.querySelector('.set-r'), del=rw.querySelector('.set-del'), ck=rw.querySelector('.set-ck');
+    w.oninput=function(){ s.sets[key][i].w=w.value; _syncRepFromSets(key); touch(); };
+    r.oninput=function(){ s.sets[key][i].r=r.value; _syncRepFromSets(key); touch(); };
+    if(ck)ck.onchange=function(){ s.sets[key][i].done=ck.checked; rw.classList.toggle('setdone',ck.checked); touch(); _maybeCompleteExercise(box,key); };
+    del.onclick=function(){ var a=s.sets[key]; if(a.length<=1){a[0]={w:'',r:''};}else{a.splice(i,1);} _syncRepFromSets(key); touch(); _renderSetRows(box,key); };
+  });
+}
+function _injectSets(card){
+  var acts=card.querySelector('.acts'); if(!acts||acts.querySelector('.setsbox'))return;
+  var key=card.dataset.key; if(!key)return;
+  s.sets=s.sets||{};
+  if(!s.sets[key]){ var w=(s.weights&&s.weights[key])||'', r=(s.reps&&s.reps[key])||''; s.sets[key]=[{w:w,r:r}]; }
+  // прибираємо одиночні поля ваги/повторень (їх замінює редактор підходів)
+  [].slice.call(acts.querySelectorAll('.wlab')).forEach(function(l){ l.remove(); });
+  var box=document.createElement('div'); box.className='setsbox'; box.setAttribute('data-key',key);
+  box.innerHTML='<div class="setshead">Підходи</div><div class="setrows"></div><button class="set-add" type="button">＋ підхід</button>';
+  acts.appendChild(box);
+  _renderSetRows(box,key);
+  box.querySelector('.set-add').onclick=function(){ var a=s.sets[key]; var last=a[a.length-1]||{w:'',r:''}; a.push({w:last.w||'',r:''}); touch(); _renderSetRows(box,key); };
+}
+(function(){ if(typeof wireCard!=='function')return;
+  var _wc=wireCard;
+  wireCard=function(card){ _wc(card); try{_injectSets(card);}catch(e){} };
+})();
+(function(){ if(typeof finishDay!=='function')return;
+  var _fd=finishDay;
+  finishDay=function(d){ _fd(d);
+    try{ var h=s.history&&s.history[0];
+      if(h&&h.items){ h.items.forEach(function(it){ var st=s.sets&&s.sets[it.key];
+        if(st&&st.length){ var clean=st.filter(function(x){return (x.w!=null&&x.w!=='')||(x.r!=null&&x.r!=='');});
+          if(clean.length)it.sets=clean.map(function(x){return {w:x.w,r:x.r,done:!!x.done};}); } }); touch(); }
+    }catch(e){}
+  };
+})();
+/* === mod v32: галочка на підхід + детальний «Минулого разу» === */
+function _maybeCompleteExercise(box,key){
+  var card=(box&&box.closest)?box.closest('.card'):null; if(!card)return;
+  var d=card.getAttribute('data-day'); if(!d)return;
+  var arr=(s.sets&&s.sets[key])||[];
+  var allDone=arr.length>0 && arr.every(function(x){return !!x.done;});
+  if(allDone){
+    s.checks[d]=s.checks[d]||{}; s.checks[d][key]=true;
+    var ck=card.querySelector('.ck'); if(ck)ck.checked=true;
+    card.classList.add('checked');
+    if(typeof refreshFinish==='function')refreshFinish(d);
+    touch();
+  }
+}
+(function(){ if(typeof lastResult!=='function')return;
+  var _lr=lastResult;
+  lastResult=function(key){
+    var H=s.history||[];
+    for(var i=0;i<H.length;i++){
+      var h=H[i]; if(!h||!h.items)continue;
+      var it=h.items.find(function(x){return x.key===key;});
+      if(!it)continue;
+      if(it.sets&&it.sets.length){
+        var parts=it.sets.filter(function(x){return (x.w!=null&&x.w!=='')||(x.r!=null&&x.r!=='');})
+          .map(function(x){ var w=(x.w!=null&&x.w!=='')?x.w:'—'; var r=(x.r!=null&&x.r!=='')?x.r:''; return w+(r?('×'+r):''); });
+        if(parts.length) return parts.join(', ')+' · '+h.date;
+      }
+      if(it.weight||it.reps) return _lr(key);
+    }
+    return _lr(key);
+  };
+})();
+
 </script>
 </body></html>
