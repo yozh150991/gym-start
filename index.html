@@ -1712,6 +1712,7 @@ function _photoRefs(){
   (s.plans||[]).forEach(p=>(p.days||[]).forEach(d=>(d.items||[]).forEach(o=>{r.push([o,'photoData'],[o,'photo2Data']);})));
   Object.values(s.custom||{}).forEach(a=>{if(Array.isArray(a))a.forEach(o=>{r.push([o,'photo'],[o,'photo2']);});});
   Object.keys(s.notes||{}).forEach(k=>{var n=s.notes[k]; if(n)r.push([n,'img']);}); /* v33: фото нотаток */
+  Object.keys(s.exNotes||{}).forEach(k=>{var n=s.exNotes[k]; if(n)r.push([n,'img']);}); /* v34: фото нотаток бібліотеки */
   return r;
 }
 function _isDataUrl(v){return typeof v==='string'&&v.slice(0,5)==='data:';}
@@ -2590,26 +2591,26 @@ function _noteVideoHTML(url){
   return '<a class="iobtn" href="'+esc(url)+'" target="_blank" rel="noopener">▶ Відкрити відео</a>';
 }
 function _noteHas(n){ return !!(n && ((n.text&&n.text.trim())||n.img||n.video)); }
-function _renderNote(box,key){
-  var n=s.notes[key]||{};
+function _renderNoteEditor(box, note, onChange){
   var media='';
-  if(n.img)media+='<div class="note-media"><img class="note-img" src="'+esc(n.img)+'" alt=""><button class="note-rm" data-rm="img">прибрати фото</button></div>';
-  if(n.video)media+='<div class="note-media">'+_noteVideoHTML(n.video)+'<button class="note-rm" data-rm="video">прибрати відео</button></div>';
-  box.innerHTML='<textarea class="note-text" placeholder="Твої нотатки: відчуття, техніка, налаштування тренажера, номер сидіння…">'+esc(n.text||'')+'</textarea>'
+  if(note.img)media+='<div class="note-media"><img class="note-img" src="'+esc(note.img)+'" alt=""><button class="note-rm" data-rm="img">прибрати фото</button></div>';
+  if(note.video)media+='<div class="note-media">'+_noteVideoHTML(note.video)+'<button class="note-rm" data-rm="video">прибрати відео</button></div>';
+  box.innerHTML='<textarea class="note-text" placeholder="Нюанси виконання, як краще робити, налаштування тренажера…">'+esc(note.text||'')+'</textarea>'
     +media
-    +'<div class="note-actions"><button class="iobtn note-add-img">🖼 '+(n.img?'Замінити фото':'Додати фото')+'</button>'
-    +'<button class="iobtn note-add-vid">🎬 '+(n.video?'Змінити відео':'Додати відео-посилання')+'</button></div>'
+    +'<div class="note-actions"><button class="iobtn note-add-img">🖼 '+(note.img?'Замінити фото':'Додати фото')+'</button>'
+    +'<button class="iobtn note-add-vid">🎬 '+(note.video?'Змінити відео':'Додати відео-посилання')+'</button></div>'
     +'<div class="note-vidin" style="display:none"><input class="note-vid-url" placeholder="встав посилання (Google Drive / YouTube / .mp4)"><button class="iobtn note-vid-ok">OK</button></div>'
     +'<input type="file" class="note-img-file" accept="image/*" style="display:none">';
-  var ta=box.querySelector('.note-text'); ta.oninput=function(){ s.notes[key].text=ta.value; touch(); _refreshNoteBtn(box,key); };
+  var ta=box.querySelector('.note-text'); ta.oninput=function(){ note.text=ta.value; onChange(); };
   var file=box.querySelector('.note-img-file');
   box.querySelector('.note-add-img').onclick=function(){ file.value=''; file.click(); };
-  file.onchange=async function(){ var f=file.files&&file.files[0]; if(!f)return; try{ var data=await fileToDataURL(f,900); s.notes[key].img=data; touch(); _renderNote(box,key); _refreshNoteBtn(box,key);}catch(e){toast('Не вдалося додати фото');} };
+  file.onchange=async function(){ var f=file.files&&file.files[0]; if(!f)return; try{ note.img=await fileToDataURL(f,900); onChange(); _renderNoteEditor(box,note,onChange);}catch(e){toast('Не вдалося додати фото');} };
   var vin=box.querySelector('.note-vidin');
-  box.querySelector('.note-add-vid').onclick=function(){ vin.style.display=vin.style.display==='none'?'flex':'none'; var i=vin.querySelector('.note-vid-url'); i.value=n.video||''; i.focus(); };
-  box.querySelector('.note-vid-ok').onclick=function(){ var u=vin.querySelector('.note-vid-url').value.trim(); s.notes[key].video=u; touch(); _renderNote(box,key); _refreshNoteBtn(box,key); };
-  [].slice.call(box.querySelectorAll('.note-rm')).forEach(function(b){ b.onclick=function(){ s.notes[key][b.getAttribute('data-rm')]=''; touch(); _renderNote(box,key); _refreshNoteBtn(box,key); }; });
+  box.querySelector('.note-add-vid').onclick=function(){ vin.style.display=vin.style.display==='none'?'flex':'none'; var i=vin.querySelector('.note-vid-url'); i.value=note.video||''; i.focus(); };
+  box.querySelector('.note-vid-ok').onclick=function(){ note.video=vin.querySelector('.note-vid-url').value.trim(); onChange(); _renderNoteEditor(box,note,onChange); };
+  [].slice.call(box.querySelectorAll('.note-rm')).forEach(function(b){ b.onclick=function(){ note[b.getAttribute('data-rm')]=''; onChange(); _renderNoteEditor(box,note,onChange); }; });
 }
+function _renderNote(box,key){ s.notes[key]=s.notes[key]||{text:'',img:'',video:''}; _renderNoteEditor(box, s.notes[key], function(){ touch(); _refreshNoteBtn(box,key); }); }
 function _refreshNoteBtn(box,key){
   var card=box&&box.closest?box.closest('.card'):null; if(!card)return;
   var btn=card.querySelector('.note-btn'); if(!btn)return;
@@ -2628,6 +2629,79 @@ function _injectNoteBtn(card){
 }
 (function(){ if(typeof wireCard!=='function')return;
   var _wc=wireCard; wireCard=function(card){ _wc(card); try{_injectNoteBtn(card);}catch(e){} };
+})();
+
+/* === mod v34: нотатки до вправи в БІБЛІОТЕЦІ (keyed по id вправи) ===
+   Окремо від нотаток на картці (v33): ці привʼязані до самої вправи (x.id),
+   для нюансів виконання / кращого пояснення, не змінюючи опис. Показуються
+   в розгортці вправи (.libdet). Той самий редактор (текст/фото/відео). */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.libnote-wrap{margin-top:10px}'
+  +'.libnote-wrap .note-btn{margin-top:0}';
+  document.head.appendChild(st); })();
+function _injectLibNotes(){
+  var cards=document.querySelectorAll('.libcard[data-id]');
+  for(var i=0;i<cards.length;i++){ (function(card){
+    var det=card.querySelector('.libdet'); if(!det||det.querySelector('.libnote-wrap'))return;
+    var exId=card.getAttribute('data-id'); if(!exId)return;
+    s.exNotes=s.exNotes||{};
+    var wrap=document.createElement('div'); wrap.className='libnote-wrap';
+    var btn=document.createElement('button'); btn.type='button';
+    var box=document.createElement('div'); box.className='notebox'; box.style.display='none';
+    function refresh(){ var has=_noteHas(s.exNotes[exId]); btn.className='note-btn'+(has?' has':''); btn.textContent=has?'📝 Моя нотатка •':'📝 Моя нотатка (як краще виконувати)'; }
+    refresh();
+    btn.onclick=function(){ if(box.style.display==='none'){ s.exNotes[exId]=s.exNotes[exId]||{text:'',img:'',video:''}; _renderNoteEditor(box, s.exNotes[exId], function(){ touch(); refresh(); }); box.style.display='block'; } else { box.style.display='none'; } };
+    wrap.appendChild(btn); wrap.appendChild(box); det.appendChild(wrap);
+  })(cards[i]); }
+}
+(function(){ if(typeof renderLibResults!=='function')return;
+  var _r=renderLibResults; renderLibResults=function(){ var o=_r.apply(this,arguments); try{_injectLibNotes();}catch(e){} return o; };
+})();
+try{_injectLibNotes();}catch(e){}
+
+/* === mod v35: бібліотечна нотатка (v34) видна на картці під час тренування ===
+   Довідково (перегляд), редагування лишається в Бібліотеці. Картку зіставляємо
+   з вправою через її елемент плану (libId для бази / ownId для своїх). */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.libnote-ref{margin-top:8px}.libnote-ref .note-btn{margin-top:0}'
+  +'.note-view-text{font-size:13.5px;line-height:1.45;white-space:pre-wrap;margin-bottom:8px;color:var(--ink)}'
+  +'.note-ro-hint{font-size:11px;color:var(--ink2);margin-top:6px;font-style:italic}';
+  document.head.appendChild(st); })();
+function _cardExId(card){
+  var key=(card&&card.dataset&&card.dataset.key)||'';
+  if(key.indexOf(':')<0)return null;              /* вбудований день — без мапінгу */
+  var uid=key.split(':')[1];
+  var p=(typeof activePlan==='function')?activePlan():null; if(!p)return null;
+  for(var di=0;di<(p.days||[]).length;di++){
+    var items=p.days[di].items||[];
+    for(var j=0;j<items.length;j++){ if(items[j].uid===uid) return items[j].libId||items[j].ownId||null; }
+  }
+  return null;
+}
+function _libNoteViewHTML(n){
+  var h='';
+  if(n.text&&n.text.trim())h+='<div class="note-view-text">'+esc(n.text)+'</div>';
+  if(n.img)h+='<img class="note-img" src="'+esc(n.img)+'" alt="">';
+  if(n.video)h+=_noteVideoHTML(n.video);
+  h+='<div class="note-ro-hint">Редагується в Бібліотеці → розгортка вправи.</div>';
+  return h;
+}
+function _injectLibNoteRef(card){
+  if(!card||card.querySelector('.libnote-ref'))return;
+  var exId=_cardExId(card); if(!exId)return;
+  var n=s.exNotes&&s.exNotes[exId]; if(!_noteHas(n))return;
+  var body=card.querySelector('.body')||card;
+  var wrap=document.createElement('div'); wrap.className='libnote-ref';
+  var btn=document.createElement('button'); btn.type='button'; btn.className='note-btn has'; btn.textContent='📖 Як виконувати (з бібліотеки) •';
+  var box=document.createElement('div'); box.className='notebox'; box.style.display='none';
+  btn.onclick=function(){ if(box.style.display==='none'){ box.innerHTML=_libNoteViewHTML(s.exNotes[exId]||{}); box.style.display='block'; } else { box.style.display='none'; } };
+  wrap.appendChild(btn); wrap.appendChild(box);
+  /* ставимо довідку ПЕРЕД особистою карт-нотаткою (v33), якщо вона є */
+  var anchor=null; [].slice.call(body.children).forEach(function(c){ if(!anchor && c.tagName==='BUTTON' && c.classList.contains('note-btn')) anchor=c; });
+  if(anchor) body.insertBefore(wrap, anchor); else body.appendChild(wrap);
+}
+(function(){ if(typeof wireCard!=='function')return;
+  var _wc=wireCard; wireCard=function(card){ _wc(card); try{_injectLibNoteRef(card);}catch(e){} };
 })();
 
 </script>
