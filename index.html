@@ -1711,6 +1711,7 @@ function _photoRefs(){
   (s.myEx||[]).forEach(o=>{r.push([o,'photoData'],[o,'photo2Data']);});
   (s.plans||[]).forEach(p=>(p.days||[]).forEach(d=>(d.items||[]).forEach(o=>{r.push([o,'photoData'],[o,'photo2Data']);})));
   Object.values(s.custom||{}).forEach(a=>{if(Array.isArray(a))a.forEach(o=>{r.push([o,'photo'],[o,'photo2']);});});
+  Object.keys(s.notes||{}).forEach(k=>{var n=s.notes[k]; if(n)r.push([n,'img']);}); /* v33: фото нотаток */
   return r;
 }
 function _isDataUrl(v){return typeof v==='string'&&v.slice(0,5)==='data:';}
@@ -2560,6 +2561,73 @@ function _maybeCompleteExercise(box,key){
     }
     return _lr(key);
   };
+})();
+
+/* === mod v33: нотатки до вправ (текст + фото + відео-посилання) ===
+   s.notes[key]={text,img,video}. Фото — base64, офлоадиться у Storage разом
+   з рештою (v19). Відео — посилання; Google Drive і YouTube відтворюються
+   вбудованим плеєром (iframe /preview), прямі .mp4 — через <video>. */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.note-btn{width:100%;margin-top:8px;background:#fff;border:1px dashed var(--line);color:var(--ink2);border-radius:11px;padding:9px;font-weight:700;font-size:13px;cursor:pointer}'
+  +'.note-btn.has{border-style:solid;border-color:var(--acc);color:var(--acc)}'
+  +'.notebox{margin-top:8px;background:var(--paper,#fafafa);border:1px solid var(--line);border-radius:11px;padding:10px}'
+  +'.note-text{width:100%;min-height:58px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13.5px;font-family:inherit;resize:vertical;box-sizing:border-box}'
+  +'.note-media{margin-top:8px}'
+  +'.note-img{width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:#fff;border:1px solid var(--line);display:block}'
+  +'.note-vid{width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000;display:block}'
+  +'.note-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}'
+  +'.note-actions .iobtn{flex:1;min-width:130px}'
+  +'.note-vidin{display:flex;gap:6px;margin-top:8px}.note-vidin input{flex:1;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:7px;box-sizing:border-box}'
+  +'.note-rm{background:none;border:none;color:var(--ink2);font-size:12px;text-decoration:underline;cursor:pointer;margin-top:5px;padding:0}';
+  document.head.appendChild(st); })();
+function _driveId(u){ var m=/drive\.google\.com\/file\/d\/([^\/?#]+)/.exec(u)||/[?&]id=([^&]+)/.exec(u); return m?m[1]:null; }
+function _ytId(u){ var m=/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{6,})/.exec(u); return m?m[1]:null; }
+function _noteVideoHTML(url){
+  if(!url)return '';
+  var dv=_driveId(url); if(dv)return '<iframe class="note-vid" src="https://drive.google.com/file/d/'+encodeURIComponent(dv)+'/preview" allow="autoplay" allowfullscreen></iframe>';
+  var yt=_ytId(url); if(yt)return '<iframe class="note-vid" src="https://www.youtube-nocookie.com/embed/'+encodeURIComponent(yt)+'" allow="autoplay" allowfullscreen></iframe>';
+  if(/\.(mp4|webm|ogg|mov)(\?|#|$)/i.test(url))return '<video class="note-vid" src="'+esc(url)+'" controls playsinline></video>';
+  return '<a class="iobtn" href="'+esc(url)+'" target="_blank" rel="noopener">▶ Відкрити відео</a>';
+}
+function _noteHas(n){ return !!(n && ((n.text&&n.text.trim())||n.img||n.video)); }
+function _renderNote(box,key){
+  var n=s.notes[key]||{};
+  var media='';
+  if(n.img)media+='<div class="note-media"><img class="note-img" src="'+esc(n.img)+'" alt=""><button class="note-rm" data-rm="img">прибрати фото</button></div>';
+  if(n.video)media+='<div class="note-media">'+_noteVideoHTML(n.video)+'<button class="note-rm" data-rm="video">прибрати відео</button></div>';
+  box.innerHTML='<textarea class="note-text" placeholder="Твої нотатки: відчуття, техніка, налаштування тренажера, номер сидіння…">'+esc(n.text||'')+'</textarea>'
+    +media
+    +'<div class="note-actions"><button class="iobtn note-add-img">🖼 '+(n.img?'Замінити фото':'Додати фото')+'</button>'
+    +'<button class="iobtn note-add-vid">🎬 '+(n.video?'Змінити відео':'Додати відео-посилання')+'</button></div>'
+    +'<div class="note-vidin" style="display:none"><input class="note-vid-url" placeholder="встав посилання (Google Drive / YouTube / .mp4)"><button class="iobtn note-vid-ok">OK</button></div>'
+    +'<input type="file" class="note-img-file" accept="image/*" style="display:none">';
+  var ta=box.querySelector('.note-text'); ta.oninput=function(){ s.notes[key].text=ta.value; touch(); _refreshNoteBtn(box,key); };
+  var file=box.querySelector('.note-img-file');
+  box.querySelector('.note-add-img').onclick=function(){ file.value=''; file.click(); };
+  file.onchange=async function(){ var f=file.files&&file.files[0]; if(!f)return; try{ var data=await fileToDataURL(f,900); s.notes[key].img=data; touch(); _renderNote(box,key); _refreshNoteBtn(box,key);}catch(e){toast('Не вдалося додати фото');} };
+  var vin=box.querySelector('.note-vidin');
+  box.querySelector('.note-add-vid').onclick=function(){ vin.style.display=vin.style.display==='none'?'flex':'none'; var i=vin.querySelector('.note-vid-url'); i.value=n.video||''; i.focus(); };
+  box.querySelector('.note-vid-ok').onclick=function(){ var u=vin.querySelector('.note-vid-url').value.trim(); s.notes[key].video=u; touch(); _renderNote(box,key); _refreshNoteBtn(box,key); };
+  [].slice.call(box.querySelectorAll('.note-rm')).forEach(function(b){ b.onclick=function(){ s.notes[key][b.getAttribute('data-rm')]=''; touch(); _renderNote(box,key); _refreshNoteBtn(box,key); }; });
+}
+function _refreshNoteBtn(box,key){
+  var card=box&&box.closest?box.closest('.card'):null; if(!card)return;
+  var btn=card.querySelector('.note-btn'); if(!btn)return;
+  var has=_noteHas(s.notes[key]); btn.classList.toggle('has',has); btn.textContent=(has?'📝 Нотатка •':'📝 Нотатка');
+}
+function _injectNoteBtn(card){
+  if(!card||card.querySelector('.note-btn'))return;
+  var key=card.dataset.key; if(!key)return;
+  s.notes=s.notes||{};
+  var body=card.querySelector('.body')||card;
+  var has=_noteHas(s.notes[key]);
+  var btn=document.createElement('button'); btn.className='note-btn'+(has?' has':''); btn.type='button'; btn.textContent=has?'📝 Нотатка •':'📝 Нотатка';
+  var box=document.createElement('div'); box.className='notebox'; box.style.display='none';
+  btn.onclick=function(){ if(box.style.display==='none'){ s.notes[key]=s.notes[key]||{text:'',img:'',video:''}; _renderNote(box,key); box.style.display='block'; } else { box.style.display='none'; } };
+  body.appendChild(btn); body.appendChild(box);
+}
+(function(){ if(typeof wireCard!=='function')return;
+  var _wc=wireCard; wireCard=function(card){ _wc(card); try{_injectNoteBtn(card);}catch(e){} };
 })();
 
 </script>
