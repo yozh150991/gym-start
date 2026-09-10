@@ -2704,5 +2704,561 @@ function _injectLibNoteRef(card){
   var _wc=wireCard; wireCard=function(card){ _wc(card); try{_injectLibNoteRef(card);}catch(e){} };
 })();
 
+/* === mod v36: статистика по вправах (гістограма росту) ===
+   Проблема: як показати і вагу, і підходи. Рішення — метрика ТОННАЖ
+   (сума вага×повтори по всіх підходах): вона поєднує обидва. Плюс
+   перемикач на «макс вагу» (чиста сила) і «підходи» (обсяг роботи).
+   Дані з s.history (item.sets з v31; для старих записів — weight×reps). */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.exstat-list{display:flex;flex-direction:column;gap:6px}'
+  +'.exstat-btn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:11px;padding:11px 13px;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer}'
+  +'.exstat-btn::after{content:"›";margin-left:auto;color:var(--ink2);font-size:18px;font-weight:800}'
+  +'.exstat-btn.on{border-color:var(--acc);color:var(--acc)}.exstat-btn.on::after{content:"⌄"}'
+  +'.exstat-box{background:var(--paper,#fafafa);border:1px solid var(--line);border-radius:11px;padding:12px;margin:2px 0 6px}'
+  +'.exstat-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}'
+  +'.exstat-tab{background:#fff;border:1px solid var(--line);color:var(--ink2);border-radius:999px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer}'
+  +'.exstat-tab.on{background:var(--acc);border-color:var(--acc);color:#fff}'
+  +'.exstat-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);font-weight:600;margin-top:8px;font-variant-numeric:tabular-nums}'
+  +'.exstat-sum b{color:var(--ink)}'
+  +'.exstat-last{margin-top:8px;font-size:12.5px;color:var(--ink2);font-weight:600}'
+  +'.exstat-last b{color:var(--ink)}'
+  +'.exstat-empty{font-size:13px;color:var(--ink2)}';
+  document.head.appendChild(st); })();
+var _statMetric='ton';
+function _sNum(v){var n=parseFloat(String(v==null?'':v).replace(',','.'));return isNaN(n)?null:n;}
+function exStats(keys){
+  var set={}; (Array.isArray(keys)?keys:[keys]).forEach(function(k){set[k]=1;});
+  var out=[], H=(s.history||[]).slice().reverse(); /* старі → нові */
+  for(var i=0;i<H.length;i++){
+    var its=H[i].items||[];
+    for(var j=0;j<its.length;j++){
+      var it=its[j]; if(!set[it.key])continue;
+      var sets=(it.sets&&it.sets.length)?it.sets:[{w:it.weight,r:it.reps}];
+      var ton=0,maxW=null,reps=0,n=0;
+      sets.forEach(function(x){
+        var w=_sNum(x.w), r=_sNum(x.r);
+        if(w==null&&r==null)return;
+        n++; if(r!=null)reps+=r;
+        if(w!=null){ if(maxW==null||w>maxW)maxW=w; if(r!=null)ton+=w*r; }
+      });
+      if(n)out.push({date:H[i].date,sets:n,ton:ton,maxW:maxW,reps:reps,raw:sets});
+    }
+  }
+  return out;
+}
+function _statVal(d){ return _statMetric==='ton'?d.ton : _statMetric==='max'?(d.maxW||0) : d.sets; }
+function _statUnit(){ return _statMetric==='ton'?'кг·повт' : _statMetric==='max'?'кг' : 'підх.'; }
+function _fmtN(n){ return (Math.round(n*10)/10).toString(); }
+function _statBars(h){
+  var W=280,H=110,pad=18,n=h.length;
+  if(!n)return '';
+  var vals=h.map(_statVal), mx=Math.max.apply(null,vals)||1;
+  var bw=Math.max(6,Math.min(26,(W-2*pad)/n-4));
+  var bars=h.map(function(d,i){
+    var v=_statVal(d), bh=Math.max(2,(v/mx)*(H-pad*2));
+    var x=pad+i*((W-2*pad)/n)+((W-2*pad)/n-bw)/2, y=H-pad-bh;
+    var lastTwo=i>=n-2;
+    return '<rect x="'+x+'" y="'+y+'" width="'+bw+'" height="'+bh+'" rx="3" fill="'+(lastTwo?'var(--acc)':'#f6b39a')+'"></rect>'
+      +(n<=8?'<text x="'+(x+bw/2)+'" y="'+(y-4)+'" text-anchor="middle" font-size="9" fill="#3a424b" font-weight="700">'+_fmtN(v)+'</text>':'');
+  }).join('');
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="118" preserveAspectRatio="none" style="display:block;background:#fff;border:1px solid var(--line);border-radius:8px">'
+    +bars+'<line x1="'+pad+'" y1="'+(H-pad)+'" x2="'+(W-pad)+'" y2="'+(H-pad)+'" stroke="var(--line)" stroke-width="1"/></svg>';
+}
+function _statDetailHTML(key){
+  var h=exStats(key);
+  if(!h.length)return '<div class="exstat-empty">Ще нема записів для цієї вправи. Заповни підходи й натисни «Завершити день».</div>';
+  var first=h[0], last=h[h.length-1];
+  var mxW=Math.max.apply(null,h.map(function(d){return d.maxW||0;}));
+  var mxT=Math.max.apply(null,h.map(function(d){return d.ton;}));
+  var growth='';
+  if(h.length>1&&_statVal(first)>0){
+    var g=Math.round((_statVal(last)/_statVal(first)-1)*100);
+    growth='<span>зміна <b>'+(g>=0?'+':'')+g+'%</b></span>';
+  }
+  var lastSets=(last.raw||[]).filter(function(x){return x.w||x.r;})
+    .map(function(x){var w=(x.w!=null&&x.w!=='')?x.w:'—';var r=(x.r!=null&&x.r!=='')?x.r:'';return w+(r?('×'+r):'');}).join(', ');
+  return '<div class="exstat-tabs">'
+      +'<button class="exstat-tab'+(_statMetric==='ton'?' on':'')+'" data-metric="ton">Тоннаж</button>'
+      +'<button class="exstat-tab'+(_statMetric==='max'?' on':'')+'" data-metric="max">Макс вага</button>'
+      +'<button class="exstat-tab'+(_statMetric==='sets'?' on':'')+'" data-metric="sets">Підходи</button></div>'
+    +_statBars(h)
+    +'<div class="exstat-sum"><span>тренувань <b>'+h.length+'</b></span>'
+      +'<span>рекорд ваги <b>'+_fmtN(mxW)+' кг</b></span>'
+      +'<span>найбільший тоннаж <b>'+_fmtN(mxT)+'</b></span>'+growth+'</div>'
+    +'<div class="exstat-last">Останнє ('+esc(last.date)+'): <b>'+esc(lastSets||'—')+'</b> · '+last.sets+' підх. · тоннаж '+_fmtN(last.ton)+'</div>';
+}
+function _statKeys(){
+  var byName={};
+  (s.history||[]).forEach(function(h){ (h.items||[]).forEach(function(it){
+    if(!it.key)return;
+    var has=(it.sets&&it.sets.length)||it.weight||it.reps;
+    if(!has)return;
+    var nm=it.name||nameFor(it.key);
+    if(!byName[nm])byName[nm]={name:nm,keys:[]};
+    if(byName[nm].keys.indexOf(it.key)<0)byName[nm].keys.push(it.key);
+  }); });
+  return Object.keys(byName).map(function(k){return byName[k];})
+    .sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+}
+function _renderStatCard(){
+  var cards=document.querySelectorAll('#panel .pcard');
+  var target=null;
+  [].slice.call(cards).forEach(function(c){
+    var h=c.querySelector('.ph2');
+    if(h&&/робочі ваги/i.test(h.textContent))target=c;
+  });
+  if(!target)return;
+  var list=_statKeys();
+  target.innerHTML='<div class="ph2">Статистика по вправах</div>'
+    +(list.length?'<div class="exstat-list">'+list.map(function(x){
+        return '<button class="exstat-btn" data-statkey="'+esc(x.keys.join('|'))+'">'+esc(x.name)+'</button>';
+      }).join('')+'</div>'
+     :'<p class="empty">Ще нема завершених тренувань із вагою.</p>');
+  [].slice.call(target.querySelectorAll('[data-statkey]')).forEach(function(b){
+    b.onclick=function(){
+      var nx=b.nextElementSibling;
+      if(nx&&nx.classList&&nx.classList.contains('exstat-box')){ nx.remove(); b.classList.remove('on'); return; }
+      var open=target.querySelector('.exstat-box'); if(open){ open.previousElementSibling.classList.remove('on'); open.remove(); }
+      var box=document.createElement('div'); box.className='exstat-box';
+      var ks=b.getAttribute('data-statkey').split('|');
+      box.innerHTML=_statDetailHTML(ks);
+      b.parentNode.insertBefore(box,b.nextSibling); b.classList.add('on');
+      _wireStatTabs(box,ks);
+    };
+  });
+}
+function _wireStatTabs(box,key){
+  [].slice.call(box.querySelectorAll('.exstat-tab')).forEach(function(t){
+    t.onclick=function(){ _statMetric=t.getAttribute('data-metric'); box.innerHTML=_statDetailHTML(key); _wireStatTabs(box,key); };
+  });
+}
+(function(){ if(typeof wireProgress!=='function')return;
+  var _wp=wireProgress; wireProgress=function(){ _wp.apply(this,arguments); try{_renderStatCard();}catch(e){} };
+})();
+
+/* === mod v37: карта мʼязів по днях плану + аналіз тренера ===
+   Вкладка «🧍 Мʼязи» у стрічці днів: схема тіла спереду/ззаду, підсвітка
+   груп, задіяних у вибраному дні (або в усьому плані). Кнопка аналізу
+   рахує підходи на групу (primary=1, secondary=0.5) і дає структурні
+   висновки: що не задіяно, баланс жим/тяга, перекоси. Не медична порада. */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.mus-days{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}'
+  +'.mus-day{background:#fff;border:1px solid var(--line);color:var(--ink2);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:700;cursor:pointer}'
+  +'.mus-day.on{background:var(--acc);border-color:var(--acc);color:#fff}'
+  +'.mus-figs{display:flex;gap:8px;justify-content:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px}'
+  +'.mus-fig{flex:1;max-width:50%}.mus-fig svg{width:100%;height:auto;display:block}'
+  +'.mus-cap{text-align:center;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:4px}'
+  +'.mus-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}'
+  +'.mus-chip{font-size:12px;font-weight:700;background:var(--tealbg,#eef7f4);border:1px solid #cfe6df;color:var(--teal);border-radius:999px;padding:4px 10px}'
+  +'.mus-none{font-size:13px;color:var(--ink2)}'
+  +'.coach-box{margin-top:12px;background:var(--paper,#fafafa);border:1px solid var(--line);border-radius:12px;padding:12px}'
+  +'.coach-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px}'
+  +'.coach-row .bar{flex:1;height:8px;background:#eceff1;border-radius:4px;overflow:hidden}'
+  +'.coach-row .bar i{display:block;height:100%;background:var(--acc);border-radius:4px}'
+  +'.coach-row .nm{width:108px;font-weight:700;color:var(--ink)}'
+  +'.coach-row .vl{width:44px;text-align:right;color:var(--ink2);font-weight:700;font-variant-numeric:tabular-nums}'
+  +'.coach-f{border-radius:9px;padding:8px 11px;margin:6px 0;font-size:13px;line-height:1.4;font-weight:600}'
+  +'.coach-f.warn{background:#fdeeee;border:1px solid #f0caca;color:#8d2f2f}'
+  +'.coach-f.ok{background:var(--tealbg,#eef7f4);border:1px solid #cfe6df;color:var(--teal)}'
+  +'.coach-f.info{background:#fff;border:1px solid var(--line);color:var(--ink2)}';
+  document.head.appendChild(st); })();
+var _musDay='all';
+/* ---- SVG схема тіла: кожна група має data-m ---- */
+function _musShape(m,on,shape){
+  var f=on?'var(--acc)':'#e4e8ea';
+  return shape.replace('%F%',f).replace('%M%',m);
+}
+function _figFront(act){
+  var A=function(m){return !!act[m];};
+  var s='<svg viewBox="0 0 200 430" xmlns="http://www.w3.org/2000/svg">';
+  s+='<ellipse cx="100" cy="34" rx="21" ry="24" fill="#eef1f2"/>';
+  s+='<rect x="90" y="55" width="20" height="13" rx="5" fill="'+(A('neck')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<path d="M74 72 L100 66 L126 72 L118 86 L82 86 Z" fill="'+(A('traps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="62" cy="94" rx="18" ry="16" fill="'+(A('shoulders')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="138" cy="94" rx="18" ry="16" fill="'+(A('shoulders')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<rect x="78" y="84" width="20" height="30" rx="8" fill="'+(A('chest')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<rect x="102" y="84" width="20" height="30" rx="8" fill="'+(A('chest')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="52" cy="130" rx="11" ry="22" fill="'+(A('biceps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="148" cy="130" rx="11" ry="22" fill="'+(A('biceps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="45" cy="176" rx="10" ry="25" fill="'+(A('forearms')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="155" cy="176" rx="10" ry="25" fill="'+(A('forearms')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<rect x="84" y="118" width="32" height="52" rx="10" fill="'+(A('abdominals')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="80" cy="240" rx="19" ry="48" fill="'+(A('quadriceps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="120" cy="240" rx="19" ry="48" fill="'+(A('quadriceps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="96" cy="214" rx="7" ry="26" fill="'+(A('adductors')?'var(--acc)':'#eef1f2')+'"/>';
+  s+='<ellipse cx="104" cy="214" rx="7" ry="26" fill="'+(A('adductors')?'var(--acc)':'#eef1f2')+'"/>';
+  s+='<ellipse cx="62" cy="212" rx="6" ry="22" fill="'+(A('abductors')?'var(--acc)':'#eef1f2')+'"/>';
+  s+='<ellipse cx="138" cy="212" rx="6" ry="22" fill="'+(A('abductors')?'var(--acc)':'#eef1f2')+'"/>';
+  s+='<ellipse cx="82" cy="336" rx="13" ry="34" fill="'+(A('calves')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="118" cy="336" rx="13" ry="34" fill="'+(A('calves')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<rect x="72" y="378" width="20" height="12" rx="5" fill="#eef1f2"/><rect x="108" y="378" width="20" height="12" rx="5" fill="#eef1f2"/>';
+  return s+'</svg>';
+}
+function _figBack(act){
+  var A=function(m){return !!act[m];};
+  var s='<svg viewBox="0 0 200 430" xmlns="http://www.w3.org/2000/svg">';
+  s+='<ellipse cx="100" cy="34" rx="21" ry="24" fill="#eef1f2"/>';
+  s+='<rect x="90" y="55" width="20" height="13" rx="5" fill="'+(A('neck')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<path d="M70 70 L100 64 L130 70 L122 104 L100 96 L78 104 Z" fill="'+(A('traps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="62" cy="94" rx="18" ry="16" fill="'+(A('shoulders')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="138" cy="94" rx="18" ry="16" fill="'+(A('shoulders')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<path d="M78 104 L100 100 L122 104 L128 140 L100 150 L72 140 Z" fill="'+(A('lats')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<rect x="86" y="108" width="28" height="24" rx="7" fill="'+(A('middle back')?'var(--acc)':'#dfe4e6')+'" opacity=".95"/>';
+  s+='<rect x="86" y="150" width="28" height="26" rx="8" fill="'+(A('lower back')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="52" cy="130" rx="11" ry="22" fill="'+(A('triceps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="148" cy="130" rx="11" ry="22" fill="'+(A('triceps')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="45" cy="176" rx="10" ry="25" fill="'+(A('forearms')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="155" cy="176" rx="10" ry="25" fill="'+(A('forearms')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="84" cy="192" rx="18" ry="18" fill="'+(A('glutes')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="116" cy="192" rx="18" ry="18" fill="'+(A('glutes')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="80" cy="252" rx="19" ry="44" fill="'+(A('hamstrings')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="120" cy="252" rx="19" ry="44" fill="'+(A('hamstrings')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="82" cy="336" rx="13" ry="34" fill="'+(A('calves')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<ellipse cx="118" cy="336" rx="13" ry="34" fill="'+(A('calves')?'var(--acc)':'#e4e8ea')+'"/>';
+  s+='<rect x="72" y="378" width="20" height="12" rx="5" fill="#eef1f2"/><rect x="108" y="378" width="20" height="12" rx="5" fill="#eef1f2"/>';
+  return s+'</svg>';
+}
+/* ---- підрахунок навантаження ---- */
+var _MUSALIAS=[[/delt|shoulder/i,'shoulders'],[/pec|chest/i,'chest'],[/lat(s|issimus)?\b/i,'lats'],
+  [/rhomb|upper back|mid(dle)? back/i,'middle back'],[/erector|lower back|spinae/i,'lower back'],
+  [/trap/i,'traps'],[/tricep/i,'triceps'],[/bicep(?!s femoris)/i,'biceps'],[/quad/i,'quadriceps'],
+  [/hamstring|biceps femoris/i,'hamstrings'],[/glut/i,'glutes'],[/calf|calve|gastro|soleus/i,'calves'],
+  [/ab(s|domin)|core|oblique/i,'abdominals'],[/forearm|grip/i,'forearms'],[/adduct/i,'adductors'],
+  [/abduct/i,'abductors'],[/neck/i,'neck']];
+function _normMus(m){
+  if(!m)return null;
+  var k=String(m).toLowerCase().trim();
+  if(typeof MUS!=='undefined'&&MUS[k])return k;
+  for(var i=0;i<_MUSALIAS.length;i++){ if(_MUSALIAS[i][0].test(k))return _MUSALIAS[i][1]; }
+  return k;
+}
+function _dayItems(di){
+  var p=activePlan();
+  if(!p){ var arr=[]; ['a','b'].forEach(function(d){ (s.custom&&s.custom[d]||[]).forEach(function(x){arr.push(x);}); }); return arr; }
+  if(di==='all'){ var out=[]; (p.days||[]).forEach(function(d){ (d.items||[]).forEach(function(i){out.push(i);}); }); return out; }
+  var day=(p.days||[])[+di]; return day?(day.items||[]):[];
+}
+function _load(di){
+  var items=_dayItems(di), load={}, act={};
+  items.forEach(function(it){
+    var sets=parseFloat(it.sets)||3;
+    var lib=(it.libId&&typeof LIB!=='undefined'&&LIB)?LIB.find(function(x){return x.id===it.libId;}):null;
+    var pms=(it.pm&&it.pm.length)?it.pm:(lib?lib.pm||[]:[]);
+    var sms=lib?(lib.sm||[]):[];
+    pms.forEach(function(m0){ var m=_normMus(m0); if(!m)return; load[m]=(load[m]||0)+sets; act[m]=1; });
+    sms.forEach(function(m0){ var m=_normMus(m0); if(!m)return; load[m]=(load[m]||0)+sets*0.5; act[m]=1; });
+  });
+  return {load:load,act:act,count:items.length};
+}
+/* ---- аналіз тренера ---- */
+var _GROUPS=[
+  ['Груди',['chest']],['Спина',['lats','middle back']],['Плечі',['shoulders']],
+  ['Біцепс',['biceps']],['Трицепс',['triceps']],['Прес/кор',['abdominals']],
+  ['Поперек',['lower back']],['Ноги',['quadriceps','hamstrings','glutes']],['Ікри',['calves']]
+];
+function _coachHTML(di){
+  var L=_load(di).load;
+  var g=_GROUPS.map(function(x){ var v=0; x[1].forEach(function(m){v+=L[m]||0;}); return {name:x[0],v:v}; });
+  var mx=Math.max.apply(null,g.map(function(x){return x.v;}))||1;
+  var rows=g.map(function(x){
+    return '<div class="coach-row"><span class="nm">'+x.name+'</span><span class="bar"><i style="width:'+Math.round(x.v/mx*100)+'%"></i></span><span class="vl">'+(Math.round(x.v*10)/10)+'</span></div>';
+  }).join('');
+  var find=[], G=function(n){ var f=g.find(function(x){return x.name===n;}); return f?f.v:0; };
+  var missing=g.filter(function(x){return x.v===0;}).map(function(x){return x.name;});
+  if(missing.length)find.push(['warn','Не задіяно взагалі: <b>'+missing.join(', ')+'</b>. Якщо це свідомо (напр. ноги тренуєш бігом) — усе гаразд; якщо ні, варто додати.']);
+  var push=G('Груди')+G('Плечі')+G('Трицепс'), pull=G('Спина')+G('Біцепс');
+  if(pull>0&&push/pull>1.6)find.push(['warn','Штовхальних ('+Math.round(push)+') помітно більше за тягнучі ('+Math.round(pull)+'). Додай тяги на спину — це вирівняє плечі й поставу.']);
+  else if(push>0&&pull/push>1.6)find.push(['warn','Тягнучих значно більше за штовхальні. Додай жим.']);
+  else if(push>0&&pull>0)find.push(['ok','Баланс жим/тяга рівний ('+Math.round(push)+' / '+Math.round(pull)+') — добре.']);
+  if(G('Біцепс')>G('Спина')&&G('Спина')>0)find.push(['warn','Біцепс навантажений більше за спину. Зазвичай спина має бути головною, а біцепс — додатком.']);
+  if(G('Трицепс')>G('Груди')&&G('Груди')>0)find.push(['warn','Трицепс перевищує груди — ймовірно, забагато ізоляції на руки.']);
+  if(G('Прес/кор')===0)find.push(['info','Немає роботи на кор. Планка чи скручування добре доповнять план.']);
+  if(di==='all'){
+    var big=g.filter(function(x){return x.v>=20;}).map(function(x){return x.name+' ('+Math.round(x.v)+')';});
+    if(big.length)find.push(['info','Багато підходів за тиждень: '+big.join(', ')+'. Стеж за відновленням.']);
+  }
+  if(!find.length)find.push(['ok','Явних перекосів не бачу — план виглядає збалансовано.']);
+  return '<div class="coach-box"><div class="ph2">Підходи на групу'+(di==='all'?' (весь план)':' (цей день)')+'</div>'+rows
+    +find.map(function(f){return '<div class="coach-f '+f[0]+'">'+f[1]+'</div>';}).join('')
+    +'<div class="coach-f info">Це структурна оцінка плану, а не медична порада.</div></div>';
+}
+function renderMuscles(){
+  var p=activePlan();
+  var days=p?(p.days||[]):[{name:'День A'},{name:'День B'}];
+  var chips='<button class="mus-day'+(_musDay==='all'?' on':'')+'" data-md="all">Весь план</button>'
+    +days.map(function(d,i){return '<button class="mus-day'+(_musDay==String(i)?' on':'')+'" data-md="'+i+'">'+esc(d.name||('День '+(i+1)))+'</button>';}).join('');
+  var info=_load(_musDay), act=info.act;
+  var names=Object.keys(act).map(function(m){return muUA(m);}).sort();
+  panel.innerHTML='<p class="lead">Схема мʼязів: підсвічено те, що навантажується. Обери день або весь план.</p>'
+    +'<div class="mus-days">'+chips+'</div>'
+    +'<div class="mus-figs"><div class="mus-fig">'+_figFront(act)+'<div class="mus-cap">спереду</div></div>'
+    +'<div class="mus-fig">'+_figBack(act)+'<div class="mus-cap">ззаду</div></div></div>'
+    +(names.length?'<div class="mus-legend">'+names.map(function(n){return '<span class="mus-chip">'+esc(n)+'</span>';}).join('')+'</div>'
+      :'<p class="mus-none">У цьому дні ще нема вправ.</p>')
+    +'<button class="iobtn primary" id="mus-coach" style="width:100%;margin-top:12px">🧠 Аналіз тренера</button>'
+    +'<div id="mus-coachbox"></div>';
+  [].slice.call(panel.querySelectorAll('[data-md]')).forEach(function(b){
+    b.onclick=function(){ _musDay=b.getAttribute('data-md'); renderMuscles(); };
+  });
+  var cb=document.getElementById('mus-coach');
+  if(cb)cb.onclick=function(){
+    var box=document.getElementById('mus-coachbox');
+    if(box.innerHTML){ box.innerHTML=''; cb.textContent='🧠 Аналіз тренера'; }
+    else { box.innerHTML=_coachHTML(_musDay); cb.textContent='🧠 Сховати аналіз'; }
+  };
+  window.scrollTo({top:0});
+}
+/* вкладка в стрічці днів + гейт */
+(function(){
+  var _bt=buildTabs;
+  buildTabs=function(){ _bt.apply(this,arguments);
+    var nav=document.getElementById('tabs'); if(!nav||!_sessReady)return;
+    if(nav.querySelector('[data-tab="muscles"]'))return;
+    nav.insertAdjacentHTML('beforeend',tabBtn('muscles','🧍 Мʼязи'));
+    var t=nav.querySelector('[data-tab="muscles"]');
+    if(t)t.addEventListener('click',function(){render('muscles');});
+    nav.style.display='';
+  };
+  var _r=render;
+  render=function(tab){
+    if(tab==='muscles'&&_sessReady){ cur='muscles'; try{markTab&&markTab('muscles');}catch(e){}
+      renderMuscles(); ensureHeader(); return; }
+    return _r.apply(this,arguments);
+  };
+})();
+
+/* === mod v38: заміна вправи на аналог прямо в дні плану ===
+   Кнопка «🔄 Тренуюсь цією» в блоці аналогів. Заміна зберігається в
+   s.swaps[ckey] і діє на ОДНЕ тренування: скидається після «Завершити
+   день» (або вручну кнопкою «↺ Основну»). Ключ логування стає
+   ckey+'~'+libId, тож ваги/підходи/історія пишуться під ТУ вправу,
+   якою реально займався (і статистика v36 рахує її окремо). */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.swap-btn{width:100%;margin-top:8px;background:var(--acc);border:1px solid var(--acc);color:#fff;border-radius:9px;padding:8px;font-size:12.5px;font-weight:800;cursor:pointer}'
+  +'.swap-note{display:flex;align-items:center;gap:8px;background:var(--tealbg,#eef7f4);border:1px solid #cfe6df;border-radius:10px;padding:8px 11px;margin:8px 0;font-size:12.5px;font-weight:700;color:var(--teal)}'
+  +'.swap-back{margin-left:auto;background:#fff;border:1px solid #cfe6df;color:var(--teal);border-radius:8px;padding:5px 9px;font-size:12px;font-weight:800;cursor:pointer}';
+  document.head.appendChild(st); })();
+function _planItemByKey(key){
+  var base=String(key).split('~')[0], parts=base.split(':');
+  if(parts.length<2)return null;
+  var p=(s.plans||[]).find(function(x){return x.id===parts[0];}); if(!p)return null;
+  for(var i=0;i<(p.days||[]).length;i++){
+    var it=(p.days[i].items||[]).find(function(x){return x.uid===parts[1];});
+    if(it)return {plan:p,item:it,base:base};
+  }
+  return null;
+}
+function _swapOf(base){ return (s.swaps&&s.swaps[base])||null; }
+function _swapKey(base){ var sw=_swapOf(base); return sw?(base+'~'+sw.libId):base; }
+function _applySwap(card){
+  var raw=card.getAttribute('data-key'); if(!raw||raw.indexOf(':')<0)return;
+  var base=raw.split('~')[0], sw=_swapOf(base);
+  card.setAttribute('data-base', base);
+  card.setAttribute('data-key', sw?(base+'~'+sw.libId):base);
+  if(!sw)return;
+  var nm=card.querySelector('.exname'); if(nm)nm.textContent=sw.name;
+  var img=card.querySelector('img.ph');
+  if(img&&sw.img&&typeof photoSrc==='function')img.src=photoSrc(sw.img);
+  var how=card.querySelector('.how');
+  if(how&&sw.ins&&sw.ins.length)how.textContent=sw.ins.slice(0,2).join(' ');
+  var body=card.querySelector('.body')||card;
+  if(!card.querySelector('.swap-note')){
+    var n=document.createElement('div'); n.className='swap-note';
+    n.innerHTML='🔄 Заміна: <b>'+esc(sw.name)+'</b><button class="swap-back" type="button">↺ Основну</button>';
+    body.insertBefore(n, body.firstChild);
+    n.querySelector('.swap-back').onclick=function(){
+      delete s.swaps[base]; touch();
+      var d=card.getAttribute('data-day'); render(d||cur); toast('Повернено основну вправу');
+    };
+  }
+}
+function _injectSwapBtns(card){
+  var alts=card.querySelectorAll('.altcard'); if(!alts.length)return;
+  if(card.querySelector('.swap-btn'))return;
+  var base=card.getAttribute('data-base')||String(card.getAttribute('data-key')||'').split('~')[0];
+  var found=_planItemByKey(base); if(!found)return;
+  var list=[]; try{ list=altsFor(typeof _altItemFor==='function'?_altItemFor(found.item):found.item)||[]; }catch(e){ return; }
+  [].slice.call(alts).forEach(function(ac,i){
+    var a=list[i]; if(!a)return;
+    var b=document.createElement('button');
+    b.className='swap-btn'; b.type='button'; b.textContent='🔄 Тренуюсь цією';
+    (ac.querySelector('.altmeta')||ac).appendChild(b);
+    b.onclick=function(){
+      s.swaps=s.swaps||{};
+      s.swaps[base]={libId:a.id,name:a.name,img:a.img,img2:a.img2,ins:a.ins||[],eq:a.equipment,pm:a.pm||[]};
+      touch();
+      var d=card.getAttribute('data-day'); render(d||cur);
+      toast('Тренуєшся: '+a.name+' — дані пишуться під неї');
+    };
+  });
+}
+(function(){ if(typeof wireCard!=='function')return;
+  var _wc=wireCard;
+  wireCard=function(card){ try{_applySwap(card);}catch(e){} _wc(card); try{_injectSwapBtns(card);}catch(e){} };
+})();
+/* назви, лічильник і запис історії — під фактичну вправу */
+(function(){
+  var _nf=nameFor;
+  nameFor=function(k){
+    var str=String(k||'');
+    if(str.indexOf('~')>0){ var sw=_swapOf(str.split('~')[0]); if(sw)return sw.name; }
+    return _nf(k);
+  };
+  var _rf=refreshFinish;
+  refreshFinish=function(d){
+    var p=activePlan();
+    if(!p||!/^d\d+$/.test(d))return _rf(d);
+    var btn=panel.querySelector('.finish[data-finishday="'+d+'"]'); if(!btn)return;
+    var day=p.days[+d.slice(1)]; if(!day)return;
+    var keys=day.items.map(function(it){ return _swapKey(ckey(p,it)); });
+    var done=keys.filter(function(k){return s.checks[d]&&s.checks[d][k];}).length;
+    btn.classList.toggle('ready',done===keys.length&&keys.length>0);
+    btn.textContent=done>0?('✓ Завершити '+day.name+' ('+done+'/'+keys.length+')'):('✓ Завершити '+day.name);
+  };
+  var _fd=finishDay;
+  finishDay=function(d){
+    var p=activePlan();
+    if(!p||!/^d\d+$/.test(d))return _fd(d);
+    var day=p.days[+d.slice(1)]; if(!day)return;
+    var items=day.items.map(function(it){
+      var base=ckey(p,it), sw=_swapOf(base), k=sw?(base+'~'+sw.libId):base;
+      return {key:k,name:sw?sw.name:it.name,weight:s.weights[k]||'',reps:s.reps[k]||'',
+              done:!!(s.checks[d]&&s.checks[d][k])};
+    }).filter(function(x){return x.done||x.weight||x.reps;});
+    s.history.unshift({day:day.name,date:today(),plan:p.name,items:items});
+    try{ var h=s.history[0];
+      h.items.forEach(function(it){ var st=s.sets&&s.sets[it.key];
+        if(st&&st.length){ var cl=st.filter(function(x){return (x.w!=null&&x.w!=='')||(x.r!=null&&x.r!=='');});
+          if(cl.length)it.sets=cl.map(function(x){return {w:x.w,r:x.r,done:!!x.done};}); } });
+    }catch(e){}
+    /* v39: заміни діють на одне тренування — після завершення дня скидаємо їх */
+    var swapped=0;
+    try{ day.items.forEach(function(it){ var base=ckey(p,it);
+      if(s.swaps&&s.swaps[base]){ delete s.swaps[base]; swapped++; } });
+    }catch(e){}
+    s.checks[d]={}; touch(); render(d);
+    toast(swapped?('Тренування записано 💪 · заміни скинуто ('+swapped+')'):'Тренування записано 💪');
+  };
+})();
+
+/* === mod v40: межа тренувальної сесії ===
+   Проблема 1: день відкривався вже «виконаним» (прапорці done лишалися
+   з минулого разу / перенеслися при імпорті).
+   Проблема 2: незакритий день губився — прогрес нікуди не записувався.
+   Рішення: штамп дати на день (s.dayStamp). При вході в день:
+     • дані з ІНШОЇ дати → день автоматично закривається в історію під
+       СВОЄЮ датою, потім починається чистий;
+     • дані без штампу (напр. з імпорту) → просто знімаються галочки;
+     • дані з сьогодні → нічого не чіпаємо (продовжуєш тренування).
+   Ваги/повтори лишаються як орієнтир; є кнопка «↺ Скинути день» для
+   повного очищення. */
+(function(){ var st=document.createElement('style'); st.textContent=
+    '.dayreset{width:100%;margin-top:10px;background:#fff;border:1px dashed var(--line);color:var(--ink2);border-radius:10px;padding:8px;font-size:12.5px;font-weight:700;cursor:pointer}';
+  document.head.appendChild(st); })();
+function _dayKeys(p,di){
+  var day=(p.days||[])[di]; if(!day)return [];
+  return (day.items||[]).map(function(it){ var base=ckey(p,it); var sw=_swapOf(base); return sw?(base+'~'+sw.libId):base; });
+}
+function _dayHasProgress(p,di){
+  var d='d'+di, keys=_dayKeys(p,di);
+  for(var i=0;i<keys.length;i++){
+    var k=keys[i];
+    if(s.checks[d]&&s.checks[d][k])return true;
+    var st=s.sets&&s.sets[k];
+    if(st&&st.some(function(x){return !!x.done;}))return true;
+  }
+  return false;
+}
+function _dayClearMarks(p,di,full){
+  var d='d'+di, keys=_dayKeys(p,di);
+  keys.forEach(function(k){
+    if(s.checks[d])delete s.checks[d][k];
+    var st=s.sets&&s.sets[k];
+    if(st){ if(full){ s.sets[k]=[{w:'',r:''}]; delete s.weights[k]; delete s.reps[k]; }
+            else st.forEach(function(x){ delete x.done; }); }
+  });
+  if(s.dayStamp)delete s.dayStamp[p.id+':d'+di];
+}
+function _autoCloseDay(p,di,stamp){
+  var d='d'+di, day=p.days[di]; if(!day)return 0;
+  var items=(day.items||[]).map(function(it){
+    var base=ckey(p,it), sw=_swapOf(base), k=sw?(base+'~'+sw.libId):base;
+    var st=(s.sets&&s.sets[k])||[];
+    var clean=st.filter(function(x){return (x.w!=null&&x.w!=='')||(x.r!=null&&x.r!=='');});
+    var done=!!(s.checks[d]&&s.checks[d][k]) || st.some(function(x){return !!x.done;});
+    var o={key:k,name:sw?sw.name:it.name,weight:s.weights[k]||'',reps:s.reps[k]||'',done:done};
+    if(clean.length)o.sets=clean.map(function(x){return {w:x.w,r:x.r,done:!!x.done};});
+    return o;
+  }).filter(function(x){return x.done||x.weight||x.reps;});
+  if(!items.length)return 0;
+  var rec={day:day.name,date:stamp,plan:p.name,items:items};
+  var H=s.history||[]; var pos=H.findIndex(function(h){return String(h.date)<=String(stamp);});
+  if(pos<0)H.push(rec); else H.splice(pos,0,rec);
+  s.history=H;
+  return items.length;
+}
+function _sessionGuard(p,di){
+  if(!p)return;
+  s.dayStamp=s.dayStamp||{};
+  var dk=p.id+':d'+di, stamp=s.dayStamp[dk];
+  if(stamp===today())return;                 /* тренування триває сьогодні */
+  if(!_dayHasProgress(p,di)){ return; }      /* нічого не позначено — чисто */
+  if(stamp){
+    var n=_autoCloseDay(p,di,stamp);
+    _dayClearMarks(p,di,false); touch();
+    if(n)setTimeout(function(){toast('Незакритий день ('+stamp+') записано в історію');},300);
+  }else{
+    _dayClearMarks(p,di,false); touch();     /* старі позначки без дати (імпорт) */
+  }
+}
+/* штамп дати — при будь-якій відмітці в дні */
+document.addEventListener('change',function(e){
+  var t=e.target; if(!t||!t.closest)return;
+  if(!t.matches('.ck,.set-ck,.ck-step'))return;
+  var card=t.closest('.card')||t.closest('.stepcard'); if(!card)return;
+  var d=card.getAttribute('data-day')||card.getAttribute('data-stepday');
+  var p=activePlan(); if(!p||!/^d\d+$/.test(d||''))return;
+  s.dayStamp=s.dayStamp||{}; s.dayStamp[p.id+':'+d]=today(); touch();
+},true);
+document.addEventListener('input',function(e){
+  var t=e.target; if(!t||!t.closest)return;
+  if(!t.matches('.set-w,.set-r'))return;
+  var card=t.closest('.card'); if(!card)return;
+  var d=card.getAttribute('data-day'); var p=activePlan();
+  if(!p||!/^d\d+$/.test(d||''))return;
+  s.dayStamp=s.dayStamp||{}; s.dayStamp[p.id+':'+d]=today();
+},true);
+/* гейт при вході в день + кнопка ручного скидання */
+(function(){
+  var _r=render;
+  render=function(tab){
+    var p=(typeof activePlan==='function')?activePlan():null;
+    if(p&&/^d\d+$/.test(String(tab||''))){ try{_sessionGuard(p,+String(tab).slice(1));}catch(e){} }
+    var out=_r.apply(this,arguments);
+    try{
+      if(p&&/^d\d+$/.test(String(cur||''))&&panel&&!panel.querySelector('.dayreset')){
+        var di=+String(cur).slice(1);
+        var b=document.createElement('button'); b.className='dayreset'; b.type='button';
+        b.textContent='↺ Скинути день (галочки й ваги)';
+        b.onclick=function(){ if(!confirm('Скинути позначки й введені ваги цього дня? Історія залишиться.'))return;
+          _dayClearMarks(p,di,true); touch(); render('d'+di); toast('День скинуто'); };
+        var fin=panel.querySelector('.finish');
+        if(fin&&fin.parentNode)fin.parentNode.insertBefore(b,fin.nextSibling); else panel.appendChild(b);
+      }
+    }catch(e){}
+    return out;
+  };
+})();
+/* штамп прибираємо при штатному завершенні дня */
+(function(){ var _fd=finishDay;
+  finishDay=function(d){ var p=activePlan();
+    var r=_fd.apply(this,arguments);
+    try{ if(p&&/^d\d+$/.test(String(d||'')) && s.dayStamp){ delete s.dayStamp[p.id+':'+d];
+      var keys=_dayKeys(p,+String(d).slice(1));
+      keys.forEach(function(k){ var st=s.sets&&s.sets[k]; if(st)st.forEach(function(x){delete x.done;}); }); touch(); }
+    }catch(e){}
+    return r; };
+})();
+
 </script>
 </body></html>
