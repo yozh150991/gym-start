@@ -94,4 +94,7 @@ Supabase — це безкоштовна «база даних у хмарі». 
 
 ---
 Фото вправ — з відкритої бази public-domain (free-exercise-db).
+Анатомічна схема мʼязів — контури з бібліотеки **body-muscles**
+© Ivan Vulović, ліцензія Apache License 2.0
+(https://github.com/vulovix/body-muscles).
 Це навчальний матеріал і не заміна консультації лікаря. Перед стартом — лікар (через серце).
