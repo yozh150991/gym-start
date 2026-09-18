@@ -1,0 +1,69 @@
+name: keepalive
+
+# Безкоштовний тариф Supabase паузить проєкт, якщо тиждень немає активності бази.
+# Застосунок звертається до бази лише коли ти його відкриваєш, тож довга перерва
+# у тренуваннях = заснулий проєкт. Цей workflow щодня робить один запит до `progress`.
+#
+# Друга задача: GitHub сам вимикає scheduled workflows після 60 днів без активності
+# в репозиторії. Тому раз на тиждень job комітить у `.keepalive` номер тижня —
+# цього достатньо, щоб лічильник скидався і пінг не помер тихо.
+#
+# Ключі не дублюються: URL і publishable-ключ читаються з `config.js`.
+# Обидва й так лежать у публічному репо — доступ до даних тримає RLS.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # щодня 06:17 UTC (08:17 Київ/Варшава влітку)
+  workflow_dispatch:        # можна смикнути вручну: Actions -> keepalive -> Run workflow
+
+permissions:
+  contents: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Прочитати ключі з config.js
+        id: cfg
+        run: |
+          URL=$(grep -oP 'SUPABASE_URL\s*=\s*"\K[^"]+' config.js)
+          KEY=$(grep -oP 'SUPABASE_ANON_KEY\s*=\s*"\K[^"]+' config.js)
+          if [ -z "$URL" ] || [ -z "$KEY" ] || [[ "$URL" == *ВСТАВ* ]]; then
+            echo "::error::config.js без ключів Supabase — пінгувати нічого"
+            exit 1
+          fi
+          echo "url=${URL%/}" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Пінг бази
+        run: |
+          # RLS поверне порожній масив (анонім не бачить чужого прогресу),
+          # але SQL-запит у Postgres виконується — саме це рахує Supabase.
+          CODE=$(curl -sS -o /tmp/body.txt -w '%{http_code}' --max-time 30 \
+            -H "apikey: ${{ steps.cfg.outputs.key }}" \
+            -H "Authorization: Bearer ${{ steps.cfg.outputs.key }}" \
+            "${{ steps.cfg.outputs.url }}/rest/v1/progress?select=user_id&limit=1")
+          echo "HTTP $CODE · $(head -c 200 /tmp/body.txt)"
+          # 200 — жива. 401/404 — змінився ключ або таблиця. 5xx — проєкт на паузі.
+          # Падаємо навмисно: GitHub надішле лист про зламаний workflow.
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Supabase відповів $CODE — перевір config.js і стан проєкту"
+            exit 1
+          fi
+
+      - name: Раз на тиждень оновити .keepalive (щоб GitHub не вимкнув cron)
+        run: |
+          WEEK=$(date -u +%G-W%V)
+          if [ -f .keepalive ] && [ "$(cat .keepalive)" = "$WEEK" ]; then
+            echo "Тиждень $WEEK уже позначено — коміт не потрібен"
+            exit 0
+          fi
+          echo "$WEEK" > .keepalive
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .keepalive
+          git commit -m "keepalive: $WEEK"
+          git push
