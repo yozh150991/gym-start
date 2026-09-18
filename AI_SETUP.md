@@ -22,7 +22,8 @@
 1. Відкрий свій проєкт `gym-start` на **supabase.com**.
 2. Ліворуч → **Edge Functions** → **Deploy a new function** → **Via Editor**.
 3. У файлі `index.ts` **виділи весь шаблонний код (Ctrl+A) і видали** — це просто приклад «Hello».
-4. Встав уміст файлу **`recognize/index.ts`** з архіву.
+4. Встав уміст файлу **`recognize/index.ts`** з репозиторію
+   ([відкрити raw](https://raw.githubusercontent.com/yozh150991/gym-start/main/recognize/index.ts)).
 5. Внизу зміни **Function name** на **`recognize`** (саме так, інакше додаток не знайде функцію).
 6. Натисни **Deploy function**.
 

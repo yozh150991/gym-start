@@ -18,7 +18,9 @@
    `index.html`, `config.js`, `exercises.json` *(без нього не працює бібліотека вправ)*,
    `manifest.webmanifest`, `service-worker.js`, `icon-192.png`, `icon-512.png`.
    Необовʼязкові (для окремих функцій): `storage_setup.sql` + `STORAGE_SETUP.md`
-   *(синхронізація фото власних вправ)*, `AI_SETUP.md` *(розпізнавання по фото)*.
+   *(синхронізація фото власних вправ)*, `AI_SETUP.md` + тека `recognize/`
+   *(розпізнавання по фото)*, `EXDB_SETUP.md` + тека `exdb/` *(онлайн-пошук вправ)*.
+   Теки `recognize/` і `exdb/` — це код для Supabase, на сайт він не впливає.
    Файл `HANDOFF.md` — це технічний документ для розробки, викладати не обовʼязково.
    Натисни **Commit changes**.
 6. Зверху відкрий **Settings** → ліворуч **Pages**.

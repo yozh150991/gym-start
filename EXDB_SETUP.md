@@ -22,7 +22,8 @@
 
 1. Відкрий проєкт `gym-start` на **supabase.com** → **Edge Functions** → **Deploy a new function** → **Via Editor**.
 2. Виділи весь шаблонний код (Ctrl+A) і видали.
-3. Встав уміст файлу **`exdb/index.ts`** з архіву.
+3. Встав уміст файлу **`exdb/index.ts`** з репозиторію
+   ([відкрити raw](https://raw.githubusercontent.com/yozh150991/gym-start/main/exdb/index.ts)).
 4. Внизу зміни **Function name** на **`exdb`** (саме так — інакше додаток не знайде функцію).
 5. **Deploy function**.
 
