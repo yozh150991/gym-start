@@ -1,9 +1,11 @@
-const CACHE='start-u-zali-v43';
+const CACHE='start-u-zali-v48';
 // Ядро: без цих файлів додаток не стартує — ставимо атомарно.
 const ASSETS=['./','./index.html','./config.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 // Важке, але потрібне офлайн (бібліотека вправ): тягнемо окремо, щоб збій мережі
 // не завалив установку SW цілком (addAll — усе або нічого).
-const EXTRA=['./exercises.json'];
+// v47: схема мʼязів MuscleMap (скрипт поверхонь + 2 фото) — так само окремо й без падіння установки.
+// v48: exercises.json змінено (допоміжні мʼязи, smAuto) — оновиться разом із бампом CACHE.
+const EXTRA=['./exercises.json','./bodymap/bodymap.js','./bodymap/male-front.webp','./bodymap/male-back.webp'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>
   c.addAll(ASSETS).then(()=>Promise.all(EXTRA.map(u=>c.add(u).catch(()=>null))))
 ));self.skipWaiting();});
